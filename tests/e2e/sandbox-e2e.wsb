@@ -1,0 +1,14 @@
+<Configuration>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>C:\Projects\migration-merlin</HostFolder>
+      <SandboxFolder>C:\migration-merlin</SandboxFolder>
+      <ReadOnly>false</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>powershell -NoProfile -ExecutionPolicy Bypass -File "C:\migration-merlin\tests\e2e\Run-E2E.ps1"</Command>
+  </LogonCommand>
+  <MemoryInMB>4096</MemoryInMB>
+  <Networking>Enable</Networking>
+</Configuration>
