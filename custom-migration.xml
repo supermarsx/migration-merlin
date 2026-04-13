@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Custom USMT Migration XML
+    Extends the default MigDocs.xml and MigApp.xml with additional capture rules.
+    Place this file alongside the source-capture.ps1 script.
+-->
+<migration urlid="http://www.microsoft.com/migration/1.0/migxmlext/custom">
+
+  <!-- ================================================================== -->
+  <!-- BROWSER DATA (beyond default USMT scope)                           -->
+  <!-- ================================================================== -->
+  <component type="Application" context="User">
+    <displayName>Google Chrome User Data</displayName>
+    <role role="Data">
+      <rules>
+        <include>
+          <objectSet>
+            <pattern type="File">%CSIDL_LOCAL_APPDATA%\Google\Chrome\User Data\Default\* [Bookmarks]</pattern>
+            <pattern type="File">%CSIDL_LOCAL_APPDATA%\Google\Chrome\User Data\Default\* [Preferences]</pattern>
+            <pattern type="File">%CSIDL_LOCAL_APPDATA%\Google\Chrome\User Data\Default\* [Login Data]</pattern>
+            <pattern type="File">%CSIDL_LOCAL_APPDATA%\Google\Chrome\User Data\Default\* [Web Data]</pattern>
+            <pattern type="File">%CSIDL_LOCAL_APPDATA%\Google\Chrome\User Data\Default\Extensions\* [*]</pattern>
+          </objectSet>
+        </include>
+      </rules>
+    </role>
+  </component>
+
+  <component type="Application" context="User">
+    <displayName>Microsoft Edge User Data</displayName>
+    <role role="Data">
+      <rules>
+        <include>
+          <objectSet>
+            <pattern type="File">%CSIDL_LOCAL_APPDATA%\Microsoft\Edge\User Data\Default\* [Bookmarks]</pattern>
+            <pattern type="File">%CSIDL_LOCAL_APPDATA%\Microsoft\Edge\User Data\Default\* [Preferences]</pattern>
+            <pattern type="File">%CSIDL_LOCAL_APPDATA%\Microsoft\Edge\User Data\Default\* [Login Data]</pattern>
+            <pattern type="File">%CSIDL_LOCAL_APPDATA%\Microsoft\Edge\User Data\Default\* [Web Data]</pattern>
+          </objectSet>
+        </include>
+      </rules>
+    </role>
+  </component>
+
+  <component type="Application" context="User">
+    <displayName>Firefox User Data</displayName>
+    <role role="Data">
+      <rules>
+        <include>
+          <objectSet>
+            <pattern type="File">%CSIDL_APPDATA%\Mozilla\Firefox\Profiles\*\* [places.sqlite]</pattern>
+            <pattern type="File">%CSIDL_APPDATA%\Mozilla\Firefox\Profiles\*\* [key4.db]</pattern>
+            <pattern type="File">%CSIDL_APPDATA%\Mozilla\Firefox\Profiles\*\* [logins.json]</pattern>
+            <pattern type="File">%CSIDL_APPDATA%\Mozilla\Firefox\Profiles\*\* [prefs.js]</pattern>
+            <pattern type="File">%CSIDL_APPDATA%\Mozilla\Firefox\* [profiles.ini]</pattern>
+          </objectSet>
+        </include>
+      </rules>
+    </role>
+  </component>
+
+  <!-- ================================================================== -->
+  <!-- STICKY NOTES                                                       -->
+  <!-- ================================================================== -->
+  <component type="Application" context="User">
+    <displayName>Sticky Notes Data</displayName>
+    <role role="Data">
+      <rules>
+        <include>
+          <objectSet>
+            <pattern type="File">%CSIDL_LOCAL_APPDATA%\Packages\Microsoft.MicrosoftStickyNotes_8wekyb3d8bbwe\LocalState\* [*]</pattern>
+          </objectSet>
+        </include>
+      </rules>
+    </role>
+  </component>
+
+  <!-- ================================================================== -->
+  <!-- OUTLOOK SIGNATURES AND STATIONERY                                  -->
+  <!-- ================================================================== -->
+  <component type="Application" context="User">
+    <displayName>Outlook Signatures</displayName>
+    <role role="Data">
+      <rules>
+        <include>
+          <objectSet>
+            <pattern type="File">%CSIDL_APPDATA%\Microsoft\Signatures\* [*]</pattern>
+            <pattern type="File">%CSIDL_APPDATA%\Microsoft\Stationery\* [*]</pattern>
+            <pattern type="File">%CSIDL_APPDATA%\Microsoft\Templates\* [*.oft]</pattern>
+          </objectSet>
+        </include>
+      </rules>
+    </role>
+  </component>
+
+  <!-- ================================================================== -->
+  <!-- ADDITIONAL DOCUMENT LOCATIONS                                      -->
+  <!-- ================================================================== -->
+  <component type="Documents" context="User">
+    <displayName>Extra Document Folders</displayName>
+    <role role="Data">
+      <rules>
+        <include>
+          <objectSet>
+            <!-- Common user folders that might have work files -->
+            <pattern type="File">%CSIDL_PROFILE%\Projects\* [*]</pattern>
+            <pattern type="File">%CSIDL_PROFILE%\Source\* [*]</pattern>
+            <pattern type="File">%CSIDL_PROFILE%\Repos\* [*]</pattern>
+            <pattern type="File">%CSIDL_PROFILE%\Scripts\* [*]</pattern>
+            <pattern type="File">%CSIDL_PROFILE%\Work\* [*]</pattern>
+          </objectSet>
+        </include>
+        <!-- Exclude build artifacts and large binaries -->
+        <exclude>
+          <objectSet>
+            <pattern type="File">%CSIDL_PROFILE%\*\node_modules\* [*]</pattern>
+            <pattern type="File">%CSIDL_PROFILE%\*\bin\* [*]</pattern>
+            <pattern type="File">%CSIDL_PROFILE%\*\obj\* [*]</pattern>
+            <pattern type="File">%CSIDL_PROFILE%\*\.git\* [*]</pattern>
+            <pattern type="File">%CSIDL_PROFILE%\*\packages\* [*]</pattern>
+          </objectSet>
+        </exclude>
+      </rules>
+    </role>
+  </component>
+
+  <!-- ================================================================== -->
+  <!-- WINDOWS TERMINAL / POWERSHELL PROFILES                             -->
+  <!-- ================================================================== -->
+  <component type="Application" context="User">
+    <displayName>Terminal and Shell Profiles</displayName>
+    <role role="Data">
+      <rules>
+        <include>
+          <objectSet>
+            <!-- Windows Terminal -->
+            <pattern type="File">%CSIDL_LOCAL_APPDATA%\Packages\Microsoft.WindowsTerminal_8wekyb3d8bbwe\LocalState\* [settings.json]</pattern>
+            <!-- PowerShell profiles -->
+            <pattern type="File">%CSIDL_MYDOCUMENTS%\PowerShell\* [*Profile*.ps1]</pattern>
+            <pattern type="File">%CSIDL_MYDOCUMENTS%\WindowsPowerShell\* [*Profile*.ps1]</pattern>
+            <!-- SSH config -->
+            <pattern type="File">%CSIDL_PROFILE%\.ssh\* [config]</pattern>
+            <pattern type="File">%CSIDL_PROFILE%\.ssh\* [known_hosts]</pattern>
+            <!-- Git config -->
+            <pattern type="File">%CSIDL_PROFILE%\* [.gitconfig]</pattern>
+            <pattern type="File">%CSIDL_PROFILE%\* [.gitignore_global]</pattern>
+          </objectSet>
+        </include>
+      </rules>
+    </role>
+  </component>
+
+  <!-- ================================================================== -->
+  <!-- VSCode SETTINGS                                                    -->
+  <!-- ================================================================== -->
+  <component type="Application" context="User">
+    <displayName>Visual Studio Code Settings</displayName>
+    <role role="Data">
+      <rules>
+        <include>
+          <objectSet>
+            <pattern type="File">%CSIDL_APPDATA%\Code\User\* [settings.json]</pattern>
+            <pattern type="File">%CSIDL_APPDATA%\Code\User\* [keybindings.json]</pattern>
+            <pattern type="File">%CSIDL_APPDATA%\Code\User\snippets\* [*]</pattern>
+            <pattern type="File">%CSIDL_PROFILE%\.vscode\extensions\* [*]</pattern>
+          </objectSet>
+        </include>
+      </rules>
+    </role>
+  </component>
+
+  <!-- ================================================================== -->
+  <!-- QUICKACCESS / PINNED FOLDERS                                       -->
+  <!-- ================================================================== -->
+  <component type="System" context="User">
+    <displayName>Quick Access and Recent Files</displayName>
+    <role role="Data">
+      <rules>
+        <include>
+          <objectSet>
+            <pattern type="File">%CSIDL_APPDATA%\Microsoft\Windows\Recent\AutomaticDestinations\* [*]</pattern>
+            <pattern type="File">%CSIDL_APPDATA%\Microsoft\Windows\Recent\CustomDestinations\* [*]</pattern>
+          </objectSet>
+        </include>
+      </rules>
+    </role>
+  </component>
+
+</migration>
