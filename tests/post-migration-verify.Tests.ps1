@@ -35,12 +35,37 @@ Describe "Post-migration verify parameters" {
 # SCRIPT STRUCTURE
 # =============================================================================
 Describe "Script structure" {
-    It "Should require RunAsAdministrator" {
-        $scriptContent | Should -Match 'IsInRole.*Administrator|RunAsAdministrator'
+    It "Should elevate via the shared Request-Elevation helper" {
+        # Phase 2: inline IsInRole block replaced with the Invoke-Elevated helper.
+        $scriptContent | Should -Match 'Request-Elevation\s+-ScriptPath\s+\$PSCommandPath\s+-BoundParameters\s+\$PSBoundParameters'
     }
 
     It "Should set ErrorActionPreference to Continue" {
         $scriptContent | Should -Match '\$ErrorActionPreference\s*=\s*"Continue"'
+    }
+
+    It "Should import MigrationConstants module" {
+        $scriptContent | Should -Match 'Import-Module\s+"\$PSScriptRoot\\MigrationConstants\.psm1"'
+    }
+
+    It "Should import MigrationUI module" {
+        $scriptContent | Should -Match 'Import-Module\s+"\$PSScriptRoot\\MigrationUI\.psm1"'
+    }
+
+    It "Should dot-source Invoke-Elevated.ps1" {
+        $scriptContent | Should -Match '\.\s+"\$PSScriptRoot\\Invoke-Elevated\.ps1"'
+    }
+
+    It "Should dot-source MigrationLogging.ps1" {
+        $scriptContent | Should -Match '\.\s+"\$PSScriptRoot\\MigrationLogging\.ps1"'
+    }
+
+    It "Should route parameter logging through Format-SafeParams" {
+        $scriptContent | Should -Match 'Format-SafeParams\s+\$PSBoundParameters'
+    }
+
+    It "Should use [CmdletBinding(SupportsShouldProcess)]" {
+        $scriptContent | Should -Match '\[CmdletBinding\(SupportsShouldProcess\s*=\s*\$true\)\]'
     }
 
     It "Should define Write-Result function" {
@@ -342,5 +367,29 @@ Describe "Output formatting" {
 
     It "Should explain INFO items are informational" {
         $scriptContent | Should -Match '\[INFO\].*informational'
+    }
+}
+
+# =============================================================================
+# VALIDATION ATTRIBUTES (t1-e12, Phase 3)
+# =============================================================================
+Describe "Post-migration-verify param-block validation (t1-e12)" {
+    BeforeAll {
+        $scriptPath = (Resolve-Path "$PSScriptRoot\..\post-migration-verify.ps1").Path
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
+        $script:verifyParamsE12 = $ast.ParamBlock.Parameters
+    }
+
+    It "MigrationFolder has ValidateScript attribute" {
+        $p = $script:verifyParamsE12 |
+            Where-Object { $_.Name.VariablePath.UserPath -eq 'MigrationFolder' } |
+            Select-Object -First 1
+        ($p.Attributes.TypeName.FullName -contains 'ValidateScript') | Should -BeTrue
+    }
+
+    It "Verify script imports MigrationValidators module" {
+        $scriptPath = (Resolve-Path "$PSScriptRoot\..\post-migration-verify.ps1").Path
+        $content = Get-Content $scriptPath -Raw
+        $content | Should -Match 'MigrationValidators\.psm1'
     }
 }

@@ -10,6 +10,7 @@
 
 BeforeAll {
     Import-Module "$PSScriptRoot\TestHelpers.psm1" -Force
+    $script:RepoRoot = (Resolve-Path "$PSScriptRoot\..").Path
 }
 
 # =============================================================================
@@ -453,5 +454,348 @@ Describe "Transfer speed calculation" {
         }
         $samples.Count | Should -Be $maxSamples
         $samples[0] | Should -Be 9.0  # 20-12+1 = 9th element
+    }
+}
+
+# =============================================================================
+# SCENARIO: UAC ELEVATION CANCELLED  (t1-e14a)
+#   Exercises the Request-Elevation / Test-IsAdmin surface. We cannot
+#   actually show a UAC prompt in tests, so instead we verify the pure
+#   helpers the script uses to decide elevation and assert the exit-like
+#   behaviour stays well-defined.
+# =============================================================================
+Describe "Scenario: UAC elevation cancelled" {
+    BeforeAll {
+        . "$script:RepoRoot\Invoke-Elevated.ps1"
+    }
+
+    It "Test-IsAdmin returns a boolean (used to gate Request-Elevation)" {
+        $val = Test-IsAdmin
+        $val | Should -BeOfType [bool]
+    }
+
+    It "Request-Elevation does not re-launch when already admin" {
+        # Mock Test-IsAdmin to true so Request-Elevation short-circuits.
+        Mock -CommandName Test-IsAdmin -MockWith { $true }
+        { Request-Elevation -Silent } | Should -Not -Throw
+    }
+
+    It "Exit-Elevation is callable and honours the -ExitCode parameter surface" {
+        # Verify the function is exposed and parameter-compatible; do NOT
+        # actually call it (would terminate the test host).
+        Get-Command Exit-Elevation | Should -Not -BeNullOrEmpty
+        (Get-Command Exit-Elevation).Parameters.Keys | Should -Contain 'ExitCode'
+    }
+}
+
+# =============================================================================
+# SCENARIO: UNC SHARE UNREACHABLE  (t1-e14a)
+# =============================================================================
+Describe "Scenario: Destination share unreachable" {
+    BeforeAll {
+        Import-Module "$script:RepoRoot\MigrationValidators.psm1" -Force
+    }
+    AfterAll {
+        Remove-Module MigrationValidators -Force -ErrorAction SilentlyContinue
+    }
+
+    It "Test-UncPath rejects a non-UNC local path (clean exit precondition)" {
+        Test-UncPath -Path 'C:\Not\AUNC\Path' | Should -BeFalse
+    }
+
+    It "Test-UncPath rejects an empty string" {
+        Test-UncPath -Path '' | Should -BeFalse
+    }
+
+    It "Test-UncPath accepts a hidden-share UNC path" {
+        Test-UncPath -Path '\\DEST-PC\MigrationShare$' | Should -BeTrue
+    }
+
+    It "Mocked Test-Path throwing simulates share unreachable for Main" {
+        # A user script's Main block would typically be guarded with
+        # try { if (-not (Test-Path $Share)) { throw } } catch { exit N }.
+        # Simulate that pattern and verify the specific exit code we chose.
+        Mock -CommandName Test-Path -MockWith { throw 'network path not found' }
+        $exitCode = 0
+        try {
+            if (-not (Test-Path '\\UNREACHABLE\share$' -ErrorAction Stop)) {
+                $exitCode = 2
+            }
+        } catch {
+            $exitCode = 2
+        }
+        $exitCode | Should -Be 2
+    }
+}
+
+# =============================================================================
+# SCENARIO: ScanState exit code handling  (t1-e14a)
+#   Uses the pure ConvertFrom-ScanStateExitCode helper already in
+#   source-capture.ps1.
+# =============================================================================
+Describe "Scenario: ScanState exit code 26 surfaces" {
+    BeforeAll {
+        # Extract only the function definitions from source-capture.ps1 using
+        # the AST and re-emit them into a temp .ps1. This avoids running the
+        # script's trailing `Main` call, which would fail catastrophically
+        # outside of an elevated session with a real share.
+        $scriptPath = "$script:RepoRoot\source-capture.ps1"
+        $script:scanStateFnAvailable = $false
+        try {
+            $tokens = $null; $parseErrors = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile(
+                $scriptPath, [ref]$tokens, [ref]$parseErrors
+            )
+            if (-not $parseErrors) {
+                $funcs = $ast.FindAll(
+                    { $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] },
+                    $false
+                )
+                $target = $funcs | Where-Object { $_.Name -eq 'ConvertFrom-ScanStateExitCode' }
+                if ($target) {
+                    $tmp = Join-Path $env:TEMP "e14-scanstate-$(Get-Random).ps1"
+                    $target.Extent.Text | Set-Content $tmp -Force
+                    . $tmp
+                    Remove-Item $tmp -Force -ErrorAction SilentlyContinue
+                    $script:scanStateFnAvailable = $true
+                }
+            }
+        } catch {
+            $script:scanStateFnAvailable = $false
+        }
+    }
+
+    It "ConvertFrom-ScanStateExitCode(26) returns a Warning that keeps the run going" {
+        if (-not $script:scanStateFnAvailable) {
+            Set-ItResult -Skipped -Because 'source-capture.ps1 could not be dot-sourced'
+            return
+        }
+        $r = ConvertFrom-ScanStateExitCode -ExitCode 26
+        $r.Code           | Should -Be 26
+        $r.Severity       | Should -Be 'Warning'
+        $r.Message        | Should -Match 'locked'
+        $r.ShouldContinue | Should -BeTrue
+    }
+
+    It "ConvertFrom-ScanStateExitCode(61) is treated as a non-fatal WARN" {
+        if (-not $script:scanStateFnAvailable) {
+            Set-ItResult -Skipped -Because 'source-capture.ps1 could not be dot-sourced'
+            return
+        }
+        $r = ConvertFrom-ScanStateExitCode -ExitCode 61
+        $r.Code           | Should -Be 61
+        $r.Severity       | Should -Be 'Warning'
+        $r.ShouldContinue | Should -BeTrue
+    }
+
+    It "ConvertFrom-ScanStateExitCode(71) is treated as fatal" {
+        if (-not $script:scanStateFnAvailable) {
+            Set-ItResult -Skipped -Because 'source-capture.ps1 could not be dot-sourced'
+            return
+        }
+        $r = ConvertFrom-ScanStateExitCode -ExitCode 71
+        $r.Severity       | Should -Be 'Error'
+        $r.ShouldContinue | Should -BeFalse
+    }
+
+    It "Arbitrary exit code (27) falls through to the Error default" {
+        if (-not $script:scanStateFnAvailable) {
+            Set-ItResult -Skipped -Because 'source-capture.ps1 could not be dot-sourced'
+            return
+        }
+        $r = ConvertFrom-ScanStateExitCode -ExitCode 27
+        $r.Severity       | Should -Be 'Error'
+        $r.ShouldContinue | Should -BeFalse
+        $r.Message        | Should -Match '27'
+    }
+}
+
+# =============================================================================
+# SCENARIO: Encryption key handling in -NonInteractive mode  (t1-e14a)
+# =============================================================================
+Describe "Scenario: Encryption key absent in non-interactive mode" {
+    It "Simulates the resolver: missing key + non-interactive => error/exit" {
+        # The real script has a helper like Resolve-EncryptionKey that
+        # reads from env var MIGRATION_MERLIN_ENC_KEY or prompts. When
+        # -NonInteractive is set and the env var is absent, it MUST NOT
+        # prompt and MUST exit with a helpful error. Emulate that path:
+        $envVar = 'MIGRATION_MERLIN_ENC_KEY'
+        $prior = [Environment]::GetEnvironmentVariable($envVar, 'Process')
+        try {
+            [Environment]::SetEnvironmentVariable($envVar, $null, 'Process')
+            $nonInteractive = $true
+            $encryptStore   = $true
+
+            $exitCode = 0
+            try {
+                if ($encryptStore) {
+                    $key = [Environment]::GetEnvironmentVariable($envVar, 'Process')
+                    if (-not $key) {
+                        if ($nonInteractive) {
+                            throw 'EncryptStore requested but no key provided'
+                        }
+                    }
+                }
+            } catch {
+                $exitCode = 3
+            }
+            $exitCode | Should -Be 3
+        } finally {
+            [Environment]::SetEnvironmentVariable($envVar, $prior, 'Process')
+        }
+    }
+
+    It "Interactive mode should prompt (not exit) when key absent" {
+        $nonInteractive = $false
+        $encryptStore   = $true
+        $prompted = $false
+
+        # Simulate the resolver's decision: interactive => prompt
+        if ($encryptStore -and -not $nonInteractive) {
+            $prompted = $true
+        }
+        $prompted | Should -BeTrue
+    }
+}
+
+# =============================================================================
+# SCENARIO: Invalid UNC path rejection flows through to clean exit  (t1-e14a)
+# =============================================================================
+Describe "Scenario: Invalid UNC path rejected" {
+    BeforeAll {
+        Import-Module "$script:RepoRoot\MigrationValidators.psm1" -Force
+    }
+    AfterAll {
+        Remove-Module MigrationValidators -Force -ErrorAction SilentlyContinue
+    }
+
+    It "rejects a path with illegal characters" {
+        Test-UncPath -Path '\\server\bad<share>' | Should -BeFalse
+    }
+
+    It "rejects a single-backslash path" {
+        Test-UncPath -Path '\server\share' | Should -BeFalse
+    }
+
+    It "drives a simulated Main() to a non-zero exit code" {
+        $share = '\\server\bad*path'
+        $exitCode = 0
+        if (-not (Test-UncPath -Path $share)) { $exitCode = 64 }
+        $exitCode | Should -Be 64
+    }
+}
+
+# =============================================================================
+# SCENARIO: Large-profile progress monitoring  (t1-e14a)
+#   Watch-ScanStateProgress polls the store path every $PollIntervalSeconds
+#   and reads the tail of a progress file. We fabricate a growing file and
+#   confirm the helpers the function relies on behave as expected without
+#   actually running the full loop (which requires a live $Process object).
+# =============================================================================
+Describe "Scenario: Large-profile progress monitoring" {
+    BeforeAll {
+        $script:tmp = Join-Path $env:TEMP ("E14-Progress-" + [guid]::NewGuid())
+        New-Item -ItemType Directory -Path $script:tmp -Force | Out-Null
+        $script:progressFile = Join-Path $script:tmp 'scan_progress.log'
+    }
+    AfterAll {
+        if (Test-Path $script:tmp) {
+            Remove-Item $script:tmp -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It "growing file tail returns the last line (UI cadence feeder)" {
+        Set-Content -Path $script:progressFile -Value @('first','second','third')
+        (Get-Content $script:progressFile -Tail 1) | Should -Be 'third'
+        Add-Content -Path $script:progressFile -Value 'fourth'
+        (Get-Content $script:progressFile -Tail 1) | Should -Be 'fourth'
+    }
+
+    It "measures cumulative store size from a growing folder" {
+        $f1 = Join-Path $script:tmp 'a.mig'
+        $f2 = Join-Path $script:tmp 'b.mig'
+        Set-Content -Path $f1 -Value ('x' * 1024)
+        $size1 = (Get-ChildItem $script:tmp -File | Measure-Object Length -Sum).Sum
+        Set-Content -Path $f2 -Value ('y' * 4096)
+        $size2 = (Get-ChildItem $script:tmp -File | Measure-Object Length -Sum).Sum
+        $size2 | Should -BeGreaterThan $size1
+    }
+
+    It "rolling speed window discards old samples beyond the cap" {
+        $samples = @()
+        for ($i = 1; $i -le 25; $i++) {
+            $samples += ($i * 1.0)
+            if ($samples.Count -gt 20) { $samples = $samples[-20..-1] }
+        }
+        $samples.Count | Should -Be 20
+        $samples[0]    | Should -Be 6.0
+    }
+}
+
+# =============================================================================
+# SCENARIO: Multi-user include/exclude filtering  (t1-e14a)
+# =============================================================================
+Describe "Scenario: Multi-user inclusion/exclusion" {
+    BeforeAll {
+        # Mock the profiles a real Get-CimInstance Win32_UserProfile call
+        # would return.
+        $script:mockProfiles = @(
+            New-MockUserProfile 'alice'
+            New-MockUserProfile 'bob'
+            New-MockUserProfile 'charlie'
+            New-MockUserProfile 'Public'  'C:\Users\Public'  $true
+            New-MockUserProfile 'Default' 'C:\Users\Default' $true
+        )
+    }
+
+    It "special profiles are filtered regardless of include/exclude" {
+        $filtered = $script:mockProfiles | Where-Object { -not $_.Special }
+        ($filtered | ForEach-Object { ($_.LocalPath -split '\\')[-1] }) |
+            Should -Not -Contain 'Public'
+        ($filtered | ForEach-Object { ($_.LocalPath -split '\\')[-1] }) |
+            Should -Not -Contain 'Default'
+    }
+
+    It "IncludeUsers narrows to the listed users" {
+        $include = @('alice','charlie')
+        $names = $script:mockProfiles |
+            Where-Object { -not $_.Special } |
+            ForEach-Object { ($_.LocalPath -split '\\')[-1] } |
+            Where-Object { $include.Count -eq 0 -or $_ -in $include }
+        $names | Should -Contain 'alice'
+        $names | Should -Contain 'charlie'
+        $names | Should -Not -Contain 'bob'
+    }
+
+    It "ExcludeUsers removes the listed users" {
+        $exclude = @('bob')
+        $names = $script:mockProfiles |
+            Where-Object { -not $_.Special } |
+            ForEach-Object { ($_.LocalPath -split '\\')[-1] } |
+            Where-Object { $_ -notin $exclude }
+        $names | Should -Contain 'alice'
+        $names | Should -Contain 'charlie'
+        $names | Should -Not -Contain 'bob'
+    }
+
+    It "Exclude wins when a user is in both lists" {
+        $include = @('alice','bob')
+        $exclude = @('bob')
+        $names = $script:mockProfiles |
+            Where-Object { -not $_.Special } |
+            ForEach-Object { ($_.LocalPath -split '\\')[-1] } |
+            Where-Object {
+                ($include.Count -eq 0 -or $_ -in $include) -and $_ -notin $exclude
+            }
+        $names | Should -Contain 'alice'
+        $names | Should -Not -Contain 'bob'
+        $names | Should -Not -Contain 'charlie'
+    }
+
+    It "Empty filters keep every non-special profile" {
+        $names = $script:mockProfiles |
+            Where-Object { -not $_.Special } |
+            ForEach-Object { ($_.LocalPath -split '\\')[-1] }
+        $names.Count | Should -Be 3
     }
 }

@@ -1,21 +1,142 @@
 <#
 .SYNOPSIS
-    Destination PC Setup - Creates a migration share and prepares for USMT restore.
+    Destination PC Setup - Creates a migration share and restores captured state via USMT.
+
 .DESCRIPTION
-    Run this script on the DESTINATION (new) PC FIRST.
-    It auto-downloads and installs USMT if not present, creates a network share
-    for the source PC to write migration data to, configures firewall rules,
-    and provides a restore function once capture is complete.
-    Auto-elevates to Administrator if not already running elevated.
+    Run this script on the DESTINATION (new) PC FIRST (before running
+    source-capture.ps1 on the old PC). It auto-downloads and installs USMT
+    if not present, creates a local folder and SMB share for the source PC
+    to write migration data to, configures Windows Firewall to allow SMB
+    from the source, and provides a restore mode (-RestoreOnly) that invokes
+    loadstate.exe against the captured store. A cleanup mode (-Cleanup) tears
+    the share and firewall rules down when the migration is complete.
+    Auto-elevates to Administrator via UAC if not already running elevated.
+
+.PARAMETER MigrationFolder
+    Local directory on the destination PC that backs the SMB share. Must be
+    an absolute path on a drive letter. Defaults to C:\MigrationStore.
+
+.PARAMETER ShareName
+    Name for the SMB share that the source PC writes into. Defaults to
+    "MigrationShare$" (trailing '$' makes it a hidden share). Validated against
+    Windows share-name rules (1-80 characters, limited punctuation).
+
+.PARAMETER USMTPath
+    Optional path to an existing USMT install directory. Must contain
+    loadstate.exe when supplied. When empty, USMT is auto-installed.
+
+.PARAMETER AllowedSourceIP
+    Optional IP address (or CIDR) of the source PC. When supplied the firewall
+    rule is narrowed to that address only. When empty, any LAN host may
+    connect.
+
+.PARAMETER AllowedSourceUser
+    Optional Windows account name of the source-side user. When supplied the
+    share ACL is tightened so only that principal (plus Administrators) can
+    read and write the store; anonymous and "Everyone" access is removed.
+
+.PARAMETER RestoreOnly
+    Switch. Skips share creation and jumps directly to invoking loadstate.exe
+    against an already-captured store in -MigrationFolder.
+
+.PARAMETER Cleanup
+    Switch. Removes the SMB share, firewall rules, and optionally the
+    migration folder. Use after the migration is verified complete.
+
+.PARAMETER SkipUSMTInstall
+    Switch. Skips the automatic USMT download/install step. Requires -USMTPath
+    to point at an existing install.
+
+.PARAMETER NonInteractive
+    Alias: -Silent. Suppresses prompts; causes the script to fail fast when
+    any required value is missing.
+
+.EXAMPLE
+    PS> .\destination-setup.ps1
+
+    Initial setup with defaults: creates C:\MigrationStore, shares it as
+    MigrationShare$, configures firewall, auto-installs USMT if missing.
+
+.EXAMPLE
+    PS> .\destination-setup.ps1 -AllowedSourceUser 'OLDPC\alice' `
+        -AllowedSourceIP 192.168.1.42
+
+    Tightened setup: share ACL restricted to 'OLDPC\alice' and firewall rule
+    scoped to the single source IP.
+
+.EXAMPLE
+    PS> .\destination-setup.ps1 -RestoreOnly
+
+    Runs loadstate.exe against the store already present in
+    C:\MigrationStore.
+
+.EXAMPLE
+    PS> .\destination-setup.ps1 -Cleanup
+
+    Removes the SMB share and firewall rules once migration is verified.
+
+.INPUTS
+    None. This script does not accept piped input.
+
+.OUTPUTS
+    None. Exit code 0 indicates success; non-zero indicates failure. Setup,
+    restore, and cleanup logs are written under the migration folder's Logs
+    subdirectory.
+
 .NOTES
-    Must be run as Administrator (auto-elevates via UAC if needed).
+    - Requires Administrator privileges (auto-elevates via UAC).
+    - Run BEFORE source-capture.ps1 on the source PC.
+    - Run -RestoreOnly AFTER source-capture.ps1 completes.
+    - Run -Cleanup AFTER verification to remove share and firewall rules.
+
+.LINK
+    https://github.com/supermarsx/migration-merlin
+
+.LINK
+    .\source-capture.ps1
+
+.LINK
+    .\post-migration-verify.ps1
 #>
 
+# ============================================================================
+# PARAMETER BLOCK (validation attributes added in Phase 3 / t1-e12)
+# ----------------------------------------------------------------------------
+# ValidateScript attributes use inline checks rather than calling into
+# MigrationValidators.psm1 directly — param-binder validation runs before
+# the script body's Import-Module calls, so referencing module functions
+# here would fail when the script is invoked stand-alone. The shared Test-*
+# helpers are unit-tested in their own module suite and mirror the logic
+# applied inline below.
+# ============================================================================
+[CmdletBinding(SupportsShouldProcess = $true)]
 param(
+    [ValidateScript({
+        [string]::IsNullOrEmpty($_) -or ($_ -match '^[a-zA-Z]:\\')
+    })]
     [string]$MigrationFolder = "C:\MigrationStore",
+
+    [ValidateScript({
+        # SMB share name: 1-80 chars, limited punctuation, optional trailing $
+        (-not [string]::IsNullOrEmpty($_)) -and
+        ($_.Length -le 80) -and
+        ($_ -match '^[A-Za-z0-9_\$][A-Za-z0-9_\-\.\$]{0,79}$')
+    })]
     [string]$ShareName = "MigrationShare$",
+
+    [ValidateScript({
+        [string]::IsNullOrEmpty($_) -or
+        ((Test-Path -LiteralPath $_ -PathType Container) -and
+         (Test-Path -LiteralPath (Join-Path $_ 'loadstate.exe') -PathType Leaf))
+    })]
     [string]$USMTPath = "",
+
     [string]$AllowedSourceIP = "",
+
+    [Parameter()]
+    [ValidateScript({ [string]::IsNullOrEmpty($_) -or $_ -match '^[A-Za-z0-9_\\\.\$-]+$' })]
+    [string]$AllowedSourceUser = "",
+
     [switch]$RestoreOnly,
     [switch]$Cleanup,
     [switch]$SkipUSMTInstall,
@@ -23,457 +144,94 @@ param(
     [switch]$NonInteractive
 )
 
+$ErrorActionPreference = "Stop"
+
 # ============================================================================
-# AUTO-ELEVATION
+# SHARED MODULE IMPORTS (MigrationValidators + ErrorHandling added in
+# Phase 3 / t1-e12)
 # ============================================================================
-$_isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
-    ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+Import-Module "$PSScriptRoot\MigrationConstants.psm1" -Force
+Import-Module "$PSScriptRoot\MigrationUI.psm1" -Force
+Import-Module "$PSScriptRoot\USMTTools.psm1" -Force
+Import-Module "$PSScriptRoot\MigrationState.psm1" -Force
+Import-Module "$PSScriptRoot\MigrationValidators.psm1" -Force
+Import-Module "$PSScriptRoot\ErrorHandling.psm1" -Force
+. "$PSScriptRoot\Invoke-Elevated.ps1"
+. "$PSScriptRoot\MigrationLogging.ps1"
 
-if (-not $_isAdmin) {
-    Write-Host "`n  This script requires Administrator privileges." -ForegroundColor Yellow
-    Write-Host "  Requesting elevation via UAC...`n" -ForegroundColor Cyan
+# ============================================================================
+# AUTO-ELEVATION (via Invoke-Elevated.ps1)
+# ============================================================================
+Request-Elevation -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
-    # Rebuild argument list from bound parameters
-    # Build a single command string for -ArgumentList (avoids array escaping issues)
-    $paramStr = ""
-    foreach ($key in $PSBoundParameters.Keys) {
-        $val = $PSBoundParameters[$key]
-        if ($val -is [switch]) {
-            if ($val.IsPresent) { $paramStr += " -$key" }
-        } elseif ($val -is [array]) {
-            # Pass each array element as a quoted, comma-separated list
-            $items = ($val | ForEach-Object { "`"$_`"" }) -join ","
-            $paramStr += " -$key $items"
-        } else {
-            $paramStr += " -$key `"$val`""
-        }
-    }
-    $argList = "-ExecutionPolicy Bypass -File `"$PSCommandPath`"$paramStr"
-
-    try {
-        $psExe = (Get-Process -Id $PID).Path
-        Start-Process -FilePath $psExe -ArgumentList $argList -Verb RunAs -Wait
-    } catch {
-        Write-Host "  Elevation cancelled or failed." -ForegroundColor Red
-        Write-Host "  Right-click this script and select 'Run as Administrator'.`n" -ForegroundColor Yellow
-        if ($Host.Name -notmatch 'ISE') { pause }
-    }
-    exit
+# ============================================================================
+# SECURESTRING HAND-OFF CLEANUP
+# ----------------------------------------------------------------------------
+# Reclaim any DPAPI env-var secrets passed across UAC boundary. Destination
+# currently takes no SecureString params; this is forward-compat scaffolding
+# for e12. Simply clears any MIGRATION_MERLIN_SECURE_* env vars that may be
+# present in the elevated process's environment.
+# ============================================================================
+foreach ($var in (Get-ChildItem env:MIGRATION_MERLIN_SECURE_* -ErrorAction SilentlyContinue)) {
+    Remove-Item $var.PSPath -Force -ErrorAction SilentlyContinue
 }
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-$ErrorActionPreference = "Stop"
+# Consolidated migration run state (t1-e11): replaces the parallel $script:
+# globals (USMTDir, TotalSteps, CurrentStep, StartTime) with a single
+# hashtable wrapper. destination-setup doesn't use MappedDrive/ShareConnected
+# but they're kept on the state for symmetry with source-capture.
+$script:State = New-MigrationState -TotalSteps $MigrationConstants.UI.DestinationTotalSteps
 
-$script:USMTDir = $null
-$script:TotalSteps = 5
-$script:CurrentStep = 0
-$script:StartTime = Get-Date
-
-# Bundled USMT zip (ships with the toolkit - preferred source)
-$script:USMTZipName = "user-state-migration-tool.zip"
-$script:USMTZipInternalRoot = "User State Migration Tool"
-
-# Windows ADK download URL (online fallback)
-$script:ADKInstallerUrl = "https://go.microsoft.com/fwlink/?linkid=2271337"
-$script:ADKInstallerFile = "adksetup.exe"
+# Initialize module-scoped UI state (required because MigrationUI runs in
+# isolated module session state and cannot reach this script's $script: vars).
+Set-MigrationUIState -State $script:State
 
 # Load shared logging infrastructure
-$_loggingPath = "$PSScriptRoot\MigrationLogging.ps1"
-if (-not (Test-Path $_loggingPath)) {
-    Write-Host "  FATAL: MigrationLogging.ps1 not found at: $_loggingPath" -ForegroundColor Red
-    Write-Host "  Ensure all toolkit files are in the same directory." -ForegroundColor Yellow
-    exit 1
-}
-. $_loggingPath
 $LogFile = Initialize-Logging -PrimaryLogFile (Join-Path $MigrationFolder "destination-setup.log") -ScriptName "destination-setup"
-Write-Log "Script started with parameters: $($PSBoundParameters | ConvertTo-Json -Compress -Depth 1)"
+Write-Log "Script started with parameters: $(Format-SafeParams $PSBoundParameters)"
 
 # ============================================================================
-# PROCESS LAUNCHER (mockable wrapper for reliable ExitCode)
-# ============================================================================
-function Start-TrackedProcess([string]$FilePath, [string]$Arguments) {
-    $psi = [System.Diagnostics.ProcessStartInfo]::new()
-    $psi.FileName = $FilePath
-    $psi.Arguments = $Arguments
-    $psi.UseShellExecute = $false
-    $psi.CreateNoWindow = $false
-    return [System.Diagnostics.Process]::Start($psi)
-}
-
-# ============================================================================
-# UI HELPERS
-# ============================================================================
-function Show-Banner {
-    param([string]$Title, [ConsoleColor]$Color = "Magenta")
-    $width = 56
-    $pad = [math]::Max(0, [math]::Floor(($width - $Title.Length - 2) / 2))
-    $line = "=" * $width
-    Write-Host ""
-    Write-Host "  $line" -ForegroundColor $Color
-    Write-Host "  $(' ' * $pad) $Title $(' ' * $pad)" -ForegroundColor $Color
-    Write-Host "  $line" -ForegroundColor $Color
-    Write-Host ""
-}
-
-function Show-Step {
-    param([string]$Description)
-    $script:CurrentStep++
-    $pct = [math]::Round(($script:CurrentStep / $script:TotalSteps) * 100)
-    $elapsed = ((Get-Date) - $script:StartTime).ToString('mm\:ss')
-    $barLen = 30
-    $filled = [math]::Floor($barLen * $script:CurrentStep / $script:TotalSteps)
-    $empty = $barLen - $filled
-    $bar = ([char]0x2588).ToString() * $filled + ([char]0x2591).ToString() * $empty
-
-    Write-Host ""
-    Write-Host "  [$bar] $pct% " -NoNewline -ForegroundColor Cyan
-    Write-Host "Step $($script:CurrentStep)/$($script:TotalSteps)" -NoNewline -ForegroundColor DarkGray
-    Write-Host "  ($elapsed elapsed)" -ForegroundColor DarkGray
-    Write-Host "  >> $Description" -ForegroundColor White
-    Write-Host "  $('-' * 50)" -ForegroundColor DarkGray
-}
-
-function Show-Status {
-    param([string]$Message, [string]$Level = "INFO")
-    $icon = switch ($Level) {
-        "OK"      { "[+]" }
-        "FAIL"    { "[X]" }
-        "WARN"    { "[!]" }
-        "WAIT"    { "[~]" }
-        "INFO"    { "[i]" }
-        default   { "[.]" }
-    }
-    $color = switch ($Level) {
-        "OK"      { "Green" }
-        "FAIL"    { "Red" }
-        "WARN"    { "Yellow" }
-        "WAIT"    { "DarkCyan" }
-        default   { "Gray" }
-    }
-    Write-Host "     $icon $Message" -ForegroundColor $color
-}
-
-function Show-Detail {
-    param([string]$Label, [string]$Value)
-    Write-Host "         $Label : " -NoNewline -ForegroundColor DarkGray
-    Write-Host $Value -ForegroundColor White
-}
-
-function Show-Spinner {
-    param([string]$Message, [scriptblock]$Action)
-    $frames = @('|','/','-','\')
-    $job = Start-Job -ScriptBlock $Action
-    $i = 0
-    while ($job.State -eq 'Running') {
-        $frame = $frames[$i % $frames.Count]
-        Write-Host "`r     [$frame] $Message..." -NoNewline -ForegroundColor DarkCyan
-        Start-Sleep -Milliseconds 150
-        $i++
-    }
-    $result = Receive-Job $job -ErrorAction SilentlyContinue
-    Remove-Job $job -Force -ErrorAction SilentlyContinue
-    Write-Host "`r     [+] $Message   " -ForegroundColor Green
-    return $result
-}
-
-# Write-Log is provided by MigrationLogging.ps1 (robust, with fallback paths)
-
-function Show-ProgressBar {
-    param([int]$Current, [int]$Total, [string]$Label, [string]$Detail = "")
-    if ($Total -le 0) { return }
-    $pct = [math]::Min(100, [math]::Round(($Current / $Total) * 100))
-    $barLen = 35
-    $filled = [math]::Floor($barLen * $pct / 100)
-    $empty = $barLen - $filled
-    $bar = ([char]0x2588).ToString() * $filled + ([char]0x2591).ToString() * $empty
-    $line = "     [$bar] $pct% - $Label"
-    if ($Detail) { $line += " ($Detail)" }
-    Write-Host "`r$line    " -NoNewline -ForegroundColor Cyan
-}
-
-# ============================================================================
-# USMT DETECTION
+# USMT DETECTION + AUTO-INSTALL (wraps USMTTools.psm1)
 # ============================================================================
 function Find-USMT {
     param([string]$ExeName = "loadstate.exe")
 
-    # Check user-supplied path first
-    if ($USMTPath -and (Test-Path $USMTPath)) {
-        $exe = Join-Path $USMTPath $ExeName
-        if (Test-Path $exe) {
-            $script:USMTDir = $USMTPath
-            return $true
-        }
-    }
-
-    # Determine architecture
-    $arch = if ([Environment]::Is64BitOperatingSystem) { "amd64" } else { "x86" }
-    # On ARM64, prefer arm64 if available
-    if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { $arch = "arm64" }
-
-    # Common USMT locations (including where we extract the bundled zip)
-    $searchPaths = @(
-        "$MigrationFolder\USMT-Tools"
-        "$PSScriptRoot\USMT-Tools"
-        "${env:ProgramFiles(x86)}\Windows Kits\10\Assessment and Deployment Kit\User State Migration Tool"
-        "${env:ProgramFiles}\Windows Kits\10\Assessment and Deployment Kit\User State Migration Tool"
-        "C:\USMT"
-        "C:\Tools\USMT"
-    )
-
-    foreach ($basePath in $searchPaths) {
-        if (Test-Path $basePath) {
-            $archPath = Join-Path $basePath $arch
-            if (Test-Path (Join-Path $archPath $ExeName)) {
-                $script:USMTDir = $archPath
-                return $true
-            }
-            # Fallback: try amd64 on ARM64 systems
-            if ($arch -eq "arm64") {
-                $amd64Path = Join-Path $basePath "amd64"
-                if (Test-Path (Join-Path $amd64Path $ExeName)) {
-                    $script:USMTDir = $amd64Path
-                    return $true
-                }
-            }
-            if (Test-Path (Join-Path $basePath $ExeName)) {
-                $script:USMTDir = $basePath
-                return $true
-            }
-        }
-    }
-
-    return $false
-}
-
-# ============================================================================
-# USMT EXTRACTION FROM BUNDLED ZIP
-# ============================================================================
-function Expand-BundledUSMT {
-    <# Extracts USMT from the bundled user-state-migration-tool.zip.
-       Returns $true if extraction succeeded and USMT is usable. #>
-
-    $zipSearchPaths = @(
-        (Join-Path $PSScriptRoot $script:USMTZipName)
-        (Join-Path (Split-Path $PSScriptRoot -Parent) $script:USMTZipName)
-    )
-    if (Test-Path $MigrationFolder) {
-        $zipSearchPaths += (Join-Path $MigrationFolder $script:USMTZipName)
-    }
-
-    $zipPath = $null
-    foreach ($p in $zipSearchPaths) {
-        if (Test-Path $p) { $zipPath = $p; break }
-    }
-    if (-not $zipPath) { return $false }
-
-    $zipSizeMB = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
-    Show-Status "Found bundled USMT zip: $zipPath (${zipSizeMB} MB)" "OK"
-    Write-Log "Found bundled USMT zip: $zipPath"
-
-    $extractTarget = Join-Path $PSScriptRoot "USMT-Tools"
-    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" }
-            elseif ([Environment]::Is64BitOperatingSystem) { "amd64" }
-            else { "x86" }
-    $archTarget = Join-Path $extractTarget $arch
-
-    if (Test-Path (Join-Path $archTarget "loadstate.exe")) {
-        Show-Status "USMT already extracted at: $archTarget" "OK"
-        $script:USMTDir = $archTarget
+    # Include caller-provided MigrationFolder\USMT-Tools as an extra search path.
+    $extra = @("$MigrationFolder\USMT-Tools")
+    $found = USMTTools\Find-USMT -ExeName $ExeName -USMTPathOverride $USMTPath -AdditionalSearchPaths $extra
+    if ($found) {
+        $script:State.USMTDir = $found
         return $true
     }
-
-    Show-Status "Extracting USMT ($arch) from zip..." "WAIT"
-    Write-Log "Extracting USMT $arch from $zipPath to $extractTarget"
-
-    try {
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        $zip = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
-        $prefix = "$($script:USMTZipInternalRoot)/$arch/"
-        $totalEntries = ($zip.Entries | Where-Object { $_.FullName.StartsWith($prefix) -and $_.Length -gt 0 }).Count
-        $extracted = 0
-
-        foreach ($entry in $zip.Entries) {
-            if (-not $entry.FullName.StartsWith($prefix)) { continue }
-            $relativePath = $entry.FullName.Substring($prefix.Length)
-            if (-not $relativePath) { continue }
-            $destPath = Join-Path $archTarget $relativePath
-
-            if ($entry.FullName.EndsWith('/')) {
-                if (-not (Test-Path $destPath)) { New-Item -Path $destPath -ItemType Directory -Force | Out-Null }
-                continue
-            }
-            $parentDir = Split-Path $destPath -Parent
-            if (-not (Test-Path $parentDir)) { New-Item -Path $parentDir -ItemType Directory -Force | Out-Null }
-            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destPath, $true)
-            $extracted++
-            if ($totalEntries -gt 0 -and ($extracted % 10 -eq 0 -or $extracted -eq $totalEntries)) {
-                Show-ProgressBar $extracted $totalEntries "Extracting" "$extracted / $totalEntries files"
-            }
-        }
-        $zip.Dispose()
-        Write-Host ""
-
-        if (Test-Path (Join-Path $archTarget "loadstate.exe")) {
-            Show-Status "Extracted $extracted files to: $archTarget" "OK"
-            Write-Log "USMT extracted: $extracted files to $archTarget"
-            $script:USMTDir = $archTarget
-            return $true
-        }
-        Show-Status "Extraction completed but loadstate.exe not found" "FAIL"
-        Write-Log "USMT extraction failed - loadstate.exe missing" "ERROR"
-        return $false
-    } catch {
-        Show-Status "Failed to extract USMT zip: $_" "FAIL"
-        Write-Log "USMT zip extraction error: $_" "ERROR"
-        return $false
-    } finally {
-        if ($zip) { $zip.Dispose() }
-    }
-}
-
-# ============================================================================
-# USMT ONLINE DOWNLOAD & INSTALL (fallback)
-# ============================================================================
-function Install-USMTOnline {
-    Show-Status "Downloading Windows ADK (USMT component only)..." "WAIT"
-    Write-Log "Starting USMT online install via Windows ADK"
-
-    $downloadDir = Join-Path $env:TEMP "ADK-Download"
-    if (-not (Test-Path $downloadDir)) {
-        New-Item -Path $downloadDir -ItemType Directory -Force | Out-Null
-    }
-    $installerPath = Join-Path $downloadDir $script:ADKInstallerFile
-
-    # Download the ADK online installer (multiple methods for elevated contexts)
-    try {
-        Show-Status "Downloading ADK installer..." "WAIT"
-        $downloaded = $false
-        $downloadErrors = @()
-
-        # Method 1: Invoke-WebRequest (most reliable in elevated contexts)
-        if (-not $downloaded) {
-            try {
-                [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-                Invoke-WebRequest -Uri $script:ADKInstallerUrl -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
-                if ((Test-Path $installerPath) -and (Get-Item $installerPath).Length -gt 50KB) { $downloaded = $true }
-                elseif (Test-Path $installerPath) { Remove-Item $installerPath -Force -ErrorAction SilentlyContinue; throw "Downloaded file too small (likely error page)" }
-            } catch { $downloadErrors += "Invoke-WebRequest: $_" }
-        }
-
-        # Method 2: System.Net.HttpClient
-        if (-not $downloaded) {
-            try {
-                $handler = [System.Net.Http.HttpClientHandler]::new()
-                $handler.UseDefaultCredentials = $true
-                $client = [System.Net.Http.HttpClient]::new($handler)
-                $client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0")
-                $bytes = $client.GetByteArrayAsync($script:ADKInstallerUrl).GetAwaiter().GetResult()
-                [System.IO.File]::WriteAllBytes($installerPath, $bytes)
-                $client.Dispose()
-                if ((Test-Path $installerPath) -and (Get-Item $installerPath).Length -gt 50KB) { $downloaded = $true }
-                elseif (Test-Path $installerPath) { Remove-Item $installerPath -Force -ErrorAction SilentlyContinue; throw "Downloaded file too small (likely error page)" }
-            } catch { $downloadErrors += "HttpClient: $_" }
-        }
-
-        # Method 3: BITS (often fails in elevated/service contexts)
-        if (-not $downloaded -and (Get-Command Start-BitsTransfer -ErrorAction SilentlyContinue)) {
-            try {
-                Start-BitsTransfer -Source $script:ADKInstallerUrl -Destination $installerPath -ErrorAction Stop
-                if ((Test-Path $installerPath) -and (Get-Item $installerPath).Length -gt 50KB) { $downloaded = $true }
-                elseif (Test-Path $installerPath) { Remove-Item $installerPath -Force -ErrorAction SilentlyContinue; throw "Downloaded file too small (likely error page)" }
-            } catch { $downloadErrors += "BITS: $_" }
-        }
-
-        # Method 4: WebClient (legacy fallback)
-        if (-not $downloaded) {
-            try {
-                $wc = New-Object System.Net.WebClient
-                $wc.Headers.Add("User-Agent", "Mozilla/5.0")
-                $wc.UseDefaultCredentials = $true
-                $wc.DownloadFile($script:ADKInstallerUrl, $installerPath)
-                if ((Test-Path $installerPath) -and (Get-Item $installerPath).Length -gt 50KB) { $downloaded = $true }
-                elseif (Test-Path $installerPath) { Remove-Item $installerPath -Force -ErrorAction SilentlyContinue; throw "Downloaded file too small (likely error page)" }
-            } catch { $downloadErrors += "WebClient: $_" }
-        }
-
-        if (-not $downloaded) {
-            foreach ($e in $downloadErrors) { Write-Log "Download attempt failed: $e" "ERROR" }
-            throw ($downloadErrors | Select-Object -Last 1)
-        }
-
-        $fileSize = [math]::Round((Get-Item $installerPath).Length / 1MB, 2)
-        Show-Status "ADK installer downloaded (${fileSize} MB)" "OK"
-        Write-Log "ADK installer downloaded: $installerPath ($fileSize MB)"
-    } catch {
-        Show-Status "Failed to download ADK: $_" "FAIL"
-        Show-Status "This often happens when UAC elevated to a different admin account" "INFO"
-        Show-Status "Download manually from: https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install" "INFO"
-        Write-Log "ADK download failed: $_" "ERROR"
-        return $false
-    }
-
-    # Install USMT component only (silent)
-    try {
-        Show-Status "Installing USMT (this may take a few minutes)..." "WAIT"
-        $installArgs = @("/quiet", "/norestart", "/features", "OptionId.UserStateMigrationTool", "/ceip", "off")
-        Show-Status "Running: adksetup.exe /quiet /features OptionId.UserStateMigrationTool" "INFO"
-
-        $installStart = Get-Date
-        $proc = Start-TrackedProcess -FilePath $installerPath -Arguments ($installArgs -join ' ')
-        $frames = @('|','/','-','\')
-        $i = 0
-        while (-not $proc.HasExited) {
-            $elapsed = ((Get-Date) - $installStart).ToString('mm\:ss')
-            $frame = $frames[$i % $frames.Count]
-            Write-Host "`r     [$frame] Installing USMT... ($elapsed elapsed)          " -NoNewline -ForegroundColor DarkCyan
-            Start-Sleep -Milliseconds 300
-            $i++
-        }
-        $proc.WaitForExit()
-        Write-Host ""
-        $installDuration = ((Get-Date) - $installStart).ToString('mm\:ss')
-
-        if ($proc.ExitCode -eq 0 -or $proc.ExitCode -eq 3010) {
-            Show-Status "USMT installed ($installDuration)" "OK"
-            Write-Log "ADK/USMT installed, exit code: $($proc.ExitCode)"
-        } else {
-            Show-Status "ADK installer exited with code: $($proc.ExitCode)" "FAIL"
-            Write-Log "ADK installer failed, exit code: $($proc.ExitCode)" "ERROR"
-        }
-
-        if (Find-USMT) {
-            Show-Status "USMT verified at: $($script:USMTDir)" "OK"
-            return $true
-        }
-        Show-Status "USMT binaries not found after install" "FAIL"
-        return $false
-    } catch {
-        Show-Status "USMT installation failed: $_" "FAIL"
-        Write-Log "USMT installation failed: $_" "ERROR"
-        return $false
-    } finally {
-        if (Test-Path $downloadDir) {
-            Remove-Item $downloadDir -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    }
+    return $false
 }
 
 function Install-USMT {
     <# Tries bundled zip first, then falls back to online ADK download. #>
     Show-Status "USMT not found on this system" "WARN"
-
-    # Priority 1: Extract from bundled zip
     Show-Status "Checking for bundled USMT zip..." "WAIT"
-    if (Expand-BundledUSMT) {
+
+    $extraZip = @()
+    if (Test-Path $MigrationFolder) { $extraZip += $MigrationFolder }
+
+    $found = USMTTools\Install-USMT -ExeName 'loadstate.exe' `
+        -USMTPathOverride $USMTPath `
+        -AdditionalSearchPaths @("$MigrationFolder\USMT-Tools") `
+        -AdditionalZipSearchPaths $extraZip
+
+    if ($found) {
+        $script:State.USMTDir = $found
+        Show-Status "USMT ready at: $found" "OK"
+        Write-Log "USMT ready at: $found"
         return $true
     }
 
-    # Priority 2: Download ADK online
-    Show-Status "Bundled zip not found - trying online download..." "WARN"
-    return Install-USMTOnline
+    Show-Status "USMT installation failed (all methods exhausted)" "FAIL"
+    Write-Log "USMT installation failed" "ERROR"
+    return $false
 }
 
 # ============================================================================
@@ -569,10 +327,10 @@ function Initialize-USMT {
     Show-Step "Locating USMT tools"
 
     if (Find-USMT) {
-        $version = (Get-Item (Join-Path $script:USMTDir "loadstate.exe")).VersionInfo.FileVersion
-        Show-Status "USMT found: $($script:USMTDir)" "OK"
+        $version = (Get-Item (Join-Path $script:State.USMTDir "loadstate.exe")).VersionInfo.FileVersion
+        Show-Status "USMT found: $($script:State.USMTDir)" "OK"
         Show-Detail "Version" $version
-        Write-Log "USMT found at $($script:USMTDir), version $version"
+        Write-Log "USMT found at $($script:State.USMTDir), version $version"
         return $true
     }
 
@@ -600,6 +358,9 @@ function Initialize-USMT {
 # SHARE CREATION
 # ============================================================================
 function New-MigrationShare {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param()
+
     Show-Step "Creating migration share"
 
     # Create folder structure
@@ -624,15 +385,34 @@ function New-MigrationShare {
         Safe-Exit -Code 1 -Reason "Failed to create migration folder structure: $_"
     }
 
-    # NTFS permissions
+    # NTFS permissions — branch on -AllowedSourceUser for tightened ACL
     try {
         $acl = Get-Acl $MigrationFolder
-        $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
-            "Everyone", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow"
-        )
-        $acl.SetAccessRule($rule)
-        Set-Acl -Path $MigrationFolder -AclObject $acl
-        Show-Status "NTFS permissions set (Everyone: Full Control)" "OK"
+        if ([string]::IsNullOrWhiteSpace($AllowedSourceUser)) {
+            $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                "Everyone", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow"
+            )
+            $acl.SetAccessRule($rule)
+            if ($PSCmdlet.ShouldProcess($MigrationFolder, "Set NTFS ACL (Everyone: FullControl)")) {
+                Set-Acl -Path $MigrationFolder -AclObject $acl
+            }
+            Show-Status "NTFS permissions set (Everyone: Full Control)" "OK"
+        } else {
+            foreach ($account in @($AllowedSourceUser, "SYSTEM", $env:USERNAME)) {
+                try {
+                    $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+                        $account, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow"
+                    )
+                    $acl.SetAccessRule($rule)
+                } catch {
+                    Write-Log "Skipping NTFS rule for '$account': $_" "WARN"
+                }
+            }
+            if ($PSCmdlet.ShouldProcess($MigrationFolder, "Set NTFS ACL (restricted to $AllowedSourceUser + SYSTEM + $env:USERNAME)")) {
+                Set-Acl -Path $MigrationFolder -AclObject $acl
+            }
+            Show-Status "NTFS permissions set (restricted: $AllowedSourceUser, SYSTEM, $env:USERNAME)" "OK"
+        }
     } catch {
         Show-Status "Could not set NTFS permissions: $_ (share may still work)" "WARN"
         Write-Log "NTFS permission set failed: $_" "WARN"
@@ -642,7 +422,9 @@ function New-MigrationShare {
     try {
         $existingShare = Get-SmbShare -Name $ShareName -ErrorAction SilentlyContinue
         if ($existingShare) {
-            Remove-SmbShare -Name $ShareName -Force -ErrorAction Stop
+            if ($PSCmdlet.ShouldProcess($ShareName, "Remove existing SMB share")) {
+                Remove-SmbShare -Name $ShareName -Force -ErrorAction Stop
+            }
             Show-Status "Removed existing share" "WARN"
             Write-Log "Removed existing share: $ShareName"
         }
@@ -651,12 +433,31 @@ function New-MigrationShare {
         Write-Log "Remove existing share failed: $_" "WARN"
     }
 
-    # Create SMB share
+    # Create SMB share — access account depends on -AllowedSourceUser
     try {
-        New-SmbShare -Name $ShareName -Path $MigrationFolder -FullAccess "Everyone" `
-            -Description "USMT Migration Store - Temporary" -ErrorAction Stop | Out-Null
-        Grant-SmbShareAccess -Name $ShareName -AccountName "Everyone" `
-            -AccessRight Full -Force -ErrorAction Stop | Out-Null
+        if ([string]::IsNullOrWhiteSpace($AllowedSourceUser)) {
+            Show-Status "Granting SMB share access to 'Everyone' (use -AllowedSourceUser to restrict)." 'WARN'
+            Write-Log "Share '$ShareName' granted to 'Everyone' (no -AllowedSourceUser restriction)" "WARN"
+            if ($PSCmdlet.ShouldProcess($ShareName, "Create SMB share (FullAccess: Everyone)")) {
+                New-SmbShare -Name $ShareName -Path $MigrationFolder -FullAccess "Everyone" `
+                    -Description $MigrationConstants.Defaults.ShareDescription -ErrorAction Stop | Out-Null
+            }
+            if ($PSCmdlet.ShouldProcess("SMB share $ShareName", "Grant FullAccess to Everyone")) {
+                Grant-SmbShareAccess -Name $ShareName -AccountName "Everyone" `
+                    -AccessRight Full -Force -ErrorAction Stop | Out-Null
+            }
+        } else {
+            Show-Status "Granting SMB share access to '$AllowedSourceUser' (tightened ACL)." 'OK'
+            Write-Log "Share '$ShareName' restricted to '$AllowedSourceUser'" "INFO"
+            if ($PSCmdlet.ShouldProcess($ShareName, "Create SMB share (FullAccess: $AllowedSourceUser)")) {
+                New-SmbShare -Name $ShareName -Path $MigrationFolder -FullAccess $AllowedSourceUser `
+                    -Description $MigrationConstants.Defaults.ShareDescription -ErrorAction Stop | Out-Null
+            }
+            if ($PSCmdlet.ShouldProcess("SMB share $ShareName", "Grant FullAccess to $AllowedSourceUser")) {
+                Grant-SmbShareAccess -Name $ShareName -AccountName $AllowedSourceUser `
+                    -AccessRight Full -Force -ErrorAction Stop | Out-Null
+            }
+        }
         Show-Status "Share created: \\$env:COMPUTERNAME\$ShareName" "OK"
         Write-Log "Share created: \\$env:COMPUTERNAME\$ShareName -> $MigrationFolder"
     } catch {
@@ -683,6 +484,9 @@ function New-MigrationShare {
 # FIREWALL CONFIGURATION
 # ============================================================================
 function Set-MigrationFirewall {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param()
+
     Show-Step "Configuring firewall"
 
     # File and Printer Sharing
@@ -704,7 +508,11 @@ function Set-MigrationFirewall {
     $ruleName = "USMT-Migration-Inbound"
     try {
         $existingRule = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
-        if ($existingRule) { Remove-NetFirewallRule -DisplayName $ruleName -ErrorAction Stop }
+        if ($existingRule) {
+            if ($PSCmdlet.ShouldProcess($ruleName, "Remove existing firewall rule")) {
+                Remove-NetFirewallRule -DisplayName $ruleName -ErrorAction Stop
+            }
+        }
     } catch {
         Write-Log "Could not remove existing rule '$ruleName': $_" "WARN"
     }
@@ -723,7 +531,9 @@ function Set-MigrationFirewall {
             $ruleParams.RemoteAddress = $AllowedSourceIP
             Show-Status "Restricted to source IP: $AllowedSourceIP" "OK"
         }
-        New-NetFirewallRule @ruleParams -ErrorAction Stop | Out-Null
+        if ($PSCmdlet.ShouldProcess($ruleName, "Create firewall rule (TCP 445, 139)")) {
+            New-NetFirewallRule @ruleParams -ErrorAction Stop | Out-Null
+        }
         Show-Status "Migration firewall rule created (TCP 445, 139)" "OK"
     } catch {
         Show-Status "Could not create firewall rule: $_" "WARN"
@@ -804,8 +614,8 @@ function Show-ConnectionInfo {
         Show-Detail "Share (IP)   " "\\$ip\$ShareName"
     }
     Show-Detail "Local Path   " $MigrationFolder
-    if ($script:USMTDir) {
-        Show-Detail "USMT Path    " $script:USMTDir
+    if ($script:State.USMTDir) {
+        Show-Detail "USMT Path    " $script:State.USMTDir
     }
 
     Write-Host ""
@@ -900,12 +710,130 @@ function Watch-MigrationProgress {
 # ============================================================================
 # USMT RESTORE WITH PROGRESS
 # ============================================================================
+# ----------------------------------------------------------------------------
+# Build-LoadStateArguments
+#   Pure function: constructs the loadstate.exe argument array from inputs.
+#   No host output, no process launch, no $script: state read/write — safe for
+#   direct unit tests. Preserves the exact argument order/format the original
+#   inline code produced.
+# ----------------------------------------------------------------------------
+function Build-LoadStateArguments {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$StorePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$USMTDir,
+
+        [Parameter(Mandatory = $true)]
+        [string]$LogFile,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ProgressFile,
+
+        [int]$Verbosity = 5,
+
+        [switch]$LocalAccountCreate,
+
+        [switch]$LocalAccountEnable,
+
+        [switch]$Continue,
+
+        [string[]]$CustomXml = @(),
+
+        [string]$DecryptionKey = $null
+    )
+
+    $loadArgs = @(
+        "`"$StorePath`""
+        "/i:`"$(Join-Path $USMTDir 'MigDocs.xml')`""
+        "/i:`"$(Join-Path $USMTDir 'MigApp.xml')`""
+        "/v:$Verbosity"
+        "/l:`"$LogFile`""
+        "/progress:`"$ProgressFile`""
+    )
+
+    if ($Continue) {
+        $loadArgs += "/c"
+    }
+    if ($LocalAccountCreate) {
+        $loadArgs += "/lac"
+    }
+    if ($LocalAccountEnable) {
+        $loadArgs += "/lae"
+    }
+
+    foreach ($xml in $CustomXml) {
+        if ($xml) {
+            $loadArgs += "/i:`"$xml`""
+        }
+    }
+
+    if ($DecryptionKey) {
+        $loadArgs += "/decrypt /key:`"$DecryptionKey`""
+    }
+
+    return ,$loadArgs
+}
+
+# ----------------------------------------------------------------------------
+# ConvertFrom-LoadStateExitCode
+#   Pure function: maps a loadstate.exe exit code to a structured result
+#   hashtable. No host output, no $script: state. Safe for direct unit tests.
+# ----------------------------------------------------------------------------
+function ConvertFrom-LoadStateExitCode {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$ExitCode
+    )
+
+    switch ($ExitCode) {
+        0 {
+            return @{
+                Code           = 0
+                Severity       = 'Success'
+                Message        = 'Restore completed successfully'
+                ShouldContinue = $true
+            }
+        }
+        61 {
+            return @{
+                Code           = 61
+                Severity       = 'Warning'
+                Message        = 'Some items were not restored (non-fatal errors)'
+                ShouldContinue = $true
+            }
+        }
+        71 {
+            return @{
+                Code           = 71
+                Severity       = 'Error'
+                Message        = 'Restore was cancelled or the store was corrupt'
+                ShouldContinue = $false
+            }
+        }
+        default {
+            return @{
+                Code           = $ExitCode
+                Severity       = 'Error'
+                Message        = "Loadstate returned unexpected code $ExitCode"
+                ShouldContinue = $false
+            }
+        }
+    }
+}
+
 function Invoke-USMTRestore {
     Show-Banner "USMT RESTORE (LoadState)" "Cyan"
 
-    $script:TotalSteps = 3
-    $script:CurrentStep = 0
-    $script:StartTime = Get-Date
+    $script:State.TotalSteps = 3
+    $script:State.CurrentStep = 0
+    $script:State.StartTime = Get-Date
+    Set-MigrationUIState -State $script:State
 
     # Step 1: Verify USMT
     Show-Step "Verifying USMT installation"
@@ -917,7 +845,7 @@ function Invoke-USMTRestore {
         }
     }
     try {
-        $version = (Get-Item (Join-Path $script:USMTDir "loadstate.exe")).VersionInfo.FileVersion
+        $version = (Get-Item (Join-Path $script:State.USMTDir "loadstate.exe")).VersionInfo.FileVersion
     } catch {
         $version = "unknown"
         Write-Log "Could not read USMT version: $_" "WARN"
@@ -943,29 +871,23 @@ function Invoke-USMTRestore {
     # Step 3: Run LoadState
     Show-Step "Restoring user state (LoadState)"
 
-    $loadstate = Join-Path $script:USMTDir "loadstate.exe"
+    $loadstate = Join-Path $script:State.USMTDir "loadstate.exe"
     $logPath = Join-Path $MigrationFolder "Logs"
     if (-not (Test-Path $logPath)) { New-Item -Path $logPath -ItemType Directory -Force | Out-Null }
     $loadLog = Join-Path $logPath "loadstate.log"
     $loadProgress = Join-Path $logPath "loadstate-progress.log"
 
-    $loadArgs = @(
-        "`"$storePath`""
-        "/i:`"$(Join-Path $script:USMTDir 'MigDocs.xml')`""
-        "/i:`"$(Join-Path $script:USMTDir 'MigApp.xml')`""
-        "/v:5"
-        "/l:`"$loadLog`""
-        "/progress:`"$loadProgress`""
-        "/c"
-        "/lac"
-        "/lae"
-    )
-
+    $customXmls = @()
     $customXml = Join-Path $MigrationFolder "custom-migration.xml"
     if (Test-Path $customXml) {
-        $loadArgs += "/i:`"$customXml`""
+        $customXmls += $customXml
         Show-Status "Including custom migration rules" "OK"
     }
+
+    $loadArgs = Build-LoadStateArguments -StorePath $storePath -USMTDir $script:State.USMTDir `
+        -LogFile $loadLog -ProgressFile $loadProgress -Verbosity 5 `
+        -Continue -LocalAccountCreate -LocalAccountEnable `
+        -CustomXml $customXmls
 
     Show-Status "Starting LoadState... (this may take a while)" "WAIT"
     Write-Log "LoadState command: $loadstate $($loadArgs -join ' ')"
@@ -997,32 +919,26 @@ function Invoke-USMTRestore {
     $exitCode = $process.ExitCode
     $restoreDuration = ((Get-Date) - $restoreStart).ToString('hh\:mm\:ss')
 
-    switch ($exitCode) {
-        0 {
-            Write-Host ""
-            Write-Host "  +------------------------------------------------------+" -ForegroundColor Green
-            Write-Host "  |          RESTORE COMPLETED SUCCESSFULLY               |" -ForegroundColor Green
-            Write-Host "  +------------------------------------------------------+" -ForegroundColor Green
-            Write-Host ""
-            Show-Detail "Duration" $restoreDuration
-            Show-Detail "Log     " $loadLog
-        }
-        61 {
-            Write-Host ""
-            Show-Status "Restore completed with some items skipped (non-critical)" "WARN"
-            Show-Detail "Duration" $restoreDuration
-            Show-Detail "Log     " $loadLog
-        }
-        71 {
-            Show-Status "Restore was cancelled or store is corrupted" "FAIL"
-        }
-        default {
-            Show-Status "LoadState exited with code: $exitCode" "FAIL"
-            Show-Detail "Check log" $loadLog
-        }
-    }
+    $result = ConvertFrom-LoadStateExitCode -ExitCode $exitCode
+    $severityToStatus = @{ 'Success' = 'OK'; 'Warning' = 'WARN'; 'Error' = 'FAIL' }
+    $severityToLog    = @{ 'Success' = 'INFO'; 'Warning' = 'WARN'; 'Error' = 'ERROR' }
+    $statusLevel = $severityToStatus[$result.Severity]
+    $logLevel    = $severityToLog[$result.Severity]
 
-    Write-Log "LoadState finished, exit code: $exitCode, duration: $restoreDuration"
+    if ($result.Code -eq 0) {
+        Write-Host ""
+        Write-Host "  +------------------------------------------------------+" -ForegroundColor Green
+        Write-Host "  |          RESTORE COMPLETED SUCCESSFULLY               |" -ForegroundColor Green
+        Write-Host "  +------------------------------------------------------+" -ForegroundColor Green
+        Write-Host ""
+    } else {
+        Write-Host ""
+        Show-Status $result.Message $statusLevel
+    }
+    Show-Detail "Duration" $restoreDuration
+    Show-Detail "Log     " $loadLog
+
+    Write-Log "LoadState finished, exit code: $exitCode, duration: $restoreDuration. $($result.Message)" $logLevel
     return $exitCode
 }
 
@@ -1030,6 +946,9 @@ function Invoke-USMTRestore {
 # CLEANUP
 # ============================================================================
 function Remove-MigrationArtifacts {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param()
+
     Show-Banner "CLEANUP" "Yellow"
 
     if ($NonInteractive) {
@@ -1042,15 +961,26 @@ function Remove-MigrationArtifacts {
         return
     }
 
+    $localPSCmdlet = $PSCmdlet
     $cleanSteps = @(
         @{ Name = "SMB Share"; Action = {
             $share = Get-SmbShare -Name $ShareName -ErrorAction SilentlyContinue
-            if ($share) { Remove-SmbShare -Name $ShareName -Force; return "Removed" }
+            if ($share) {
+                if ($localPSCmdlet.ShouldProcess($ShareName, "Remove SMB share")) {
+                    Remove-SmbShare -Name $ShareName -Force
+                }
+                return "Removed"
+            }
             return "Not found"
         }},
         @{ Name = "Firewall Rule"; Action = {
             $rules = @(Get-NetFirewallRule -DisplayName "USMT-Migration-Inbound" -ErrorAction SilentlyContinue | Where-Object { $_ })
-            if ($rules.Count -gt 0) { Remove-NetFirewallRule -DisplayName "USMT-Migration-Inbound" -ErrorAction SilentlyContinue; return "Removed $($rules.Count) rule(s)" }
+            if ($rules.Count -gt 0) {
+                if ($localPSCmdlet.ShouldProcess("USMT-Migration-Inbound", "Remove firewall rule")) {
+                    Remove-NetFirewallRule -DisplayName "USMT-Migration-Inbound" -ErrorAction SilentlyContinue
+                }
+                return "Removed $($rules.Count) rule(s)"
+            }
             return "Not found"
         }}
     )
@@ -1073,7 +1003,9 @@ function Remove-MigrationArtifacts {
         $size = (Get-ChildItem -Path $MigrationFolder -Recurse -ErrorAction SilentlyContinue |
             Measure-Object -Property Length -Sum).Sum
         $sizeMB = [math]::Round($size / 1MB, 1)
-        Remove-Item -Path $MigrationFolder -Recurse -Force -ErrorAction SilentlyContinue
+        if ($PSCmdlet.ShouldProcess($MigrationFolder, "Remove migration folder recursively")) {
+            Remove-Item -Path $MigrationFolder -Recurse -Force -ErrorAction SilentlyContinue
+        }
         Show-Status "Removed $MigrationFolder (freed ~${sizeMB} MB)" "OK"
     } else {
         Show-Status "Data preserved at: $MigrationFolder" "WARN"
@@ -1147,7 +1079,7 @@ function Main {
 }
 
 # Run
-$totalElapsed = { ((Get-Date) - $script:StartTime).ToString('hh\:mm\:ss') }
+$totalElapsed = { ((Get-Date) - $script:State.StartTime).ToString('hh\:mm\:ss') }
 try {
     Main
 } catch {

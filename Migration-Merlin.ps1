@@ -1,14 +1,86 @@
 <#
 .SYNOPSIS
-    Migration Merlin — Interactive TUI for USMT PC-to-PC migration.
+    Migration Merlin - Unified interactive TUI for USMT PC-to-PC migration.
+
 .DESCRIPTION
-    Arrow-key navigable menu, interactive config panels, spinners,
-    animated banner, and real-time progress. Single-file entry point.
+    Single-file entry point that wraps destination-setup.ps1, source-capture.ps1,
+    and post-migration-verify.ps1 behind an arrow-key navigable text UI.
+    Features animated banner, interactive configuration panels, spinners,
+    real-time progress bars, and persisted configuration in
+    %LOCALAPPDATA%\MigrationMerlin\config.json. Auto-elevates to Administrator
+    via UAC on launch and keeps the console awake (prevents display sleep) for
+    the duration of a long-running capture or restore. This is the recommended
+    launch surface for interactive use; the underlying scripts remain available
+    for scripted / unattended deployments.
+
+.EXAMPLE
+    PS> .\Migration-Merlin.ps1
+
+    Launches the TUI with defaults. The menu walks the user through setup,
+    capture, restore, verification, and cleanup in sequence.
+
+.EXAMPLE
+    PS> .\Migration-Merlin.bat
+
+    Double-click wrapper that launches the TUI via PowerShell with the
+    correct execution policy. Equivalent to the direct .ps1 invocation.
+
+.EXAMPLE
+    PS> .\Migration-Merlin.ps1
+    (Once inside the TUI, pick "Load Configuration" to restore a previously
+     saved run configuration from %LOCALAPPDATA%\MigrationMerlin\config.json.)
+
+    Launches the TUI and resumes from a saved configuration.
+
+.INPUTS
+    None. Input is collected interactively through the TUI.
+
+.OUTPUTS
+    None. Exit code 0 indicates a clean exit. Logs from individual phases are
+    written under the migration folder's Logs subdirectory.
+
+.NOTES
+    - Requires Windows PowerShell 5.1 or later.
+    - Requires Administrator privileges (auto-elevates via UAC).
+    - Minimum console width 64 columns; the script attempts to widen to 80.
+    - Uses VT100 / ANSI escape sequences; Windows 10 1511+ or Windows Terminal
+      recommended.
+    - Prevents system and display sleep while running via
+      SetThreadExecutionState.
+
+.LINK
+    https://github.com/supermarsx/migration-merlin
+
+.LINK
+    .\destination-setup.ps1
+
+.LINK
+    .\source-capture.ps1
+
+.LINK
+    .\post-migration-verify.ps1
 #>
 #Requires -Version 5.1
+[CmdletBinding()]
 param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# ════════════════════════════════════════════════════════════════
+#  MODULE IMPORTS
+# ════════════════════════════════════════════════════════════════
+# Phase 1 shared modules. Imported here so Request-Elevation can marshal
+# $PSBoundParameters across UAC and Format-SafeParams can scrub param logs.
+# MigrationUI is imported for completeness; the TUI keeps its own ANSI
+# helpers because their colour/format contract differs from the module's
+# (see note in the HELPERS section below).
+Import-Module "$PSScriptRoot\MigrationConstants.psm1" -Force -ErrorAction SilentlyContinue
+Import-Module "$PSScriptRoot\MigrationUI.psm1" -Force -ErrorAction SilentlyContinue
+# Phase 3 / t1-e12: shared validators exposed in the TUI's scope so future
+# interactive input handling can reuse Test-UncPath / Test-ProfileName etc.
+Import-Module "$PSScriptRoot\MigrationValidators.psm1" -Force -ErrorAction SilentlyContinue
+. "$PSScriptRoot\Invoke-Elevated.ps1"
+. "$PSScriptRoot\MigrationLogging.ps1"
 
 # ════════════════════════════════════════════════════════════════
 #  BOOTSTRAP
@@ -37,12 +109,8 @@ public static class MwKernel {
     [MwKernel]::KeepAwake()
 } catch {}
 
-# Auto-elevate
-if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
-    ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Start-Process powershell -Verb RunAs -ArgumentList "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
-    exit
-}
+# Auto-elevate (marshals $PSBoundParameters across UAC via Invoke-Elevated helper).
+Request-Elevation -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 # Handle UNC paths — PS 5.1 can't Set-Location to \\server\share
 $script:ScriptRoot = $PSScriptRoot
@@ -75,9 +143,16 @@ $cC         = "$E[96m"   # cyan
 $cW         = "$E[97m"   # white
 $cGR        = "$E[90m"   # gray
 
-$Spin = @([char]0x280B,[char]0x2819,[char]0x2839,[char]0x2838,
-          [char]0x283C,[char]0x2834,[char]0x2826,[char]0x2827,
-          [char]0x2807,[char]0x280F)
+# Spinner frames. Prefer $MigrationConstants.UI.SpinnerFrames (same braille
+# sequence, centralized in Phase 1). Fall back to the original literal array
+# if MigrationConstants isn't loaded for any reason.
+if ($MigrationConstants -and $MigrationConstants.UI -and $MigrationConstants.UI.SpinnerFrames) {
+    $Spin = $MigrationConstants.UI.SpinnerFrames
+} else {
+    $Spin = @([char]0x280B,[char]0x2819,[char]0x2839,[char]0x2838,
+              [char]0x283C,[char]0x2834,[char]0x2826,[char]0x2827,
+              [char]0x2807,[char]0x280F)
+}
 
 # ════════════════════════════════════════════════════════════════
 #  STATE

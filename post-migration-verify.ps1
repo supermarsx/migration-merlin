@@ -1,40 +1,97 @@
 <#
 .SYNOPSIS
-    Post-migration verification script. Run on the DESTINATION PC after restore.
+    Post-migration verification - Reports what migrated and what needs manual attention.
+
 .DESCRIPTION
-    Compares pre-scan data from the source with the current state of the destination,
-    reporting what migrated successfully and what needs manual attention.
-    Auto-elevates to Administrator if not already running elevated.
+    Run this script on the DESTINATION (new) PC AFTER destination-setup.ps1
+    -RestoreOnly completes. It reads the pre-scan manifest captured on the
+    source, compares it to the current state of the destination (user profiles,
+    file counts, key application footprints, shell customisations), and prints
+    a colour-coded PASS / WARN / FAIL / INFO report. The script is purely
+    diagnostic - it never modifies system state. Individual checks are allowed
+    to fail so the full report is always produced.
+    Auto-elevates to Administrator via UAC if not already running elevated.
+
+.PARAMETER MigrationFolder
+    Path to the migration store to verify against. Defaults to
+    C:\MigrationStore; when the caller accepts the default the value is
+    realigned at runtime with MigrationConstants.Defaults.MigrationFolder so
+    there is a single source of truth. Validation accepts an empty string,
+    any absolute drive-letter path, or any existing directory.
+
+.EXAMPLE
+    PS> .\post-migration-verify.ps1
+
+    Runs the standard report against C:\MigrationStore.
+
+.EXAMPLE
+    PS> .\post-migration-verify.ps1 -MigrationFolder 'D:\MigrationStore'
+
+    Runs the report against a non-default store location (useful when
+    destination-setup.ps1 was invoked with a custom -MigrationFolder).
+
+.INPUTS
+    None. This script does not accept piped input.
+
+.OUTPUTS
+    None (console report). Exit code 0 is always returned because the script
+    is diagnostic; check the console output for FAIL entries. A verify log is
+    written under the migration folder's Logs subdirectory.
+
+.NOTES
+    - Requires Administrator privileges (auto-elevates via UAC).
+    - Run AFTER destination-setup.ps1 -RestoreOnly.
+    - Safe to re-run; makes no system changes.
+
+.LINK
+    https://github.com/supermarsx/migration-merlin
+
+.LINK
+    .\destination-setup.ps1
+
+.LINK
+    .\source-capture.ps1
 #>
 
+[CmdletBinding(SupportsShouldProcess = $true)]
 param(
+    # Default kept as a literal so parameter metadata stays self-documenting.
+    # Runtime value is re-aligned with $MigrationConstants.Defaults.MigrationFolder
+    # right below so there is a single source of truth across the toolkit.
+    # Phase 3 / t1-e12: validation attribute accepts the literal default,
+    # any empty value (realigned below), and any existing directory.
+    [ValidateScript({
+        [string]::IsNullOrEmpty($_) -or
+        ($_ -match '^[a-zA-Z]:\\') -or
+        (Test-Path -LiteralPath $_ -PathType Container)
+    })]
     [string]$MigrationFolder = "C:\MigrationStore"
 )
 
-# ---- Auto-elevation ----
-$_isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
-    ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $_isAdmin) {
-    Write-Host "`n  Requesting Administrator privileges...`n" -ForegroundColor Cyan
-    $argList = @("-ExecutionPolicy", "Bypass", "-File", "`"$PSCommandPath`"")
-    if ($PSBoundParameters.ContainsKey('MigrationFolder')) {
-        $argList += "-MigrationFolder"; $argList += "`"$MigrationFolder`""
-    }
-    try {
-        Start-Process -FilePath (Get-Process -Id $PID).Path -ArgumentList $argList -Verb RunAs -Wait
-    } catch {
-        Write-Host "  Elevation failed. Right-click and 'Run as Administrator'.`n" -ForegroundColor Red
-        if ($Host.Name -notmatch 'ISE') { pause }
-    }
-    exit
+# ---- Module imports / shared helpers ----
+Import-Module "$PSScriptRoot\MigrationConstants.psm1" -Force
+Import-Module "$PSScriptRoot\MigrationUI.psm1" -Force
+Import-Module "$PSScriptRoot\MigrationValidators.psm1" -Force
+Import-Module "$PSScriptRoot\ErrorHandling.psm1" -Force
+. "$PSScriptRoot\Invoke-Elevated.ps1"
+. "$PSScriptRoot\MigrationLogging.ps1"
+
+# If the caller accepted the default literal, realign with the shared constant
+# so a future change to the constant flows through without touching this file.
+if (-not $PSBoundParameters.ContainsKey('MigrationFolder')) {
+    $MigrationFolder = $MigrationConstants.Defaults.MigrationFolder
 }
 
+# ---- Auto-elevation ----
+Request-Elevation -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
+
+# Continue rather than Stop - this is a reporting script; individual checks may legitimately fail
+# and we want to see the full report anyway.
 $ErrorActionPreference = "Continue"
 
-# Load shared logging infrastructure
-. "$PSScriptRoot\MigrationLogging.ps1"
 $LogFile = Initialize-Logging -PrimaryLogFile (Join-Path $MigrationFolder "Logs\verify.log") -ScriptName "verify"
 Write-Log "Post-migration verification started for folder: $MigrationFolder"
+Write-Log "Parameters: $(Format-SafeParams $PSBoundParameters)"
 
 # Validate migration folder exists
 if (-not (Test-Path $MigrationFolder)) {

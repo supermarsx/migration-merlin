@@ -1,25 +1,173 @@
 <#
 .SYNOPSIS
-    Source PC Capture - Captures user state via USMT and stores on destination share.
+    Source PC Capture - Captures user state via USMT and writes it to the destination share.
+
 .DESCRIPTION
-    Run this script on the SOURCE (old) PC AFTER the destination PC share is ready.
-    It auto-downloads and installs USMT if needed, validates connectivity,
-    captures user profiles with rich progress, and writes to the destination share.
-    Auto-elevates to Administrator if not already running elevated.
+    Run this script on the SOURCE (old) PC AFTER the destination PC share is ready
+    (see destination-setup.ps1). It auto-downloads and installs USMT if needed,
+    validates SMB connectivity to the destination, enumerates user profiles,
+    captures them via scanstate.exe with rich progress output, and writes the
+    resulting store to the destination share. Optionally encrypts the store with
+    AES-256 and can be driven non-interactively for scripted deployments.
+    Auto-elevates to Administrator via UAC if not already running elevated.
+
+.PARAMETER DestinationShare
+    UNC path to the migration share on the destination PC (for example
+    \\NewPC\MigrationShare$). Validation accepts an empty string (prompted
+    interactively) or a well-formed UNC path.
+
+.PARAMETER USMTPath
+    Optional path to an existing USMT install directory. When supplied it must
+    contain scanstate.exe; otherwise the script auto-installs USMT.
+
+.PARAMETER ShareUsername
+    Username used to authenticate to the destination share when the current
+    user lacks access. Supply together with -SharePassword.
+
+.PARAMETER SharePassword
+    SecureString password paired with -ShareUsername. Converted to plaintext
+    just-in-time for `net use` and cleared immediately after. Never stored on
+    disk. Use Read-Host -AsSecureString to supply interactively.
+
+.PARAMETER IncludeUsers
+    Array of profile names to capture. When empty, all non-system profiles are
+    captured. Names are validated against characters that are illegal in
+    Windows account names.
+
+.PARAMETER ExcludeUsers
+    Array of profile names to skip. Validated the same way as -IncludeUsers.
+
+.PARAMETER ExtraData
+    Switch. When set, includes additional non-profile data locations defined
+    in custom-migration.xml.
+
+.PARAMETER SkipConnectivityCheck
+    Switch. Skips the SMB reachability pre-flight to the destination share.
+
+.PARAMETER SkipUSMTInstall
+    Switch. Skips the automatic USMT download/install step. Requires -USMTPath
+    to point at an existing install.
+
+.PARAMETER DryRun
+    Switch. Performs all validation and prints the scanstate.exe command line
+    without executing the capture.
+
+.PARAMETER EncryptStore
+    Switch. Enables AES-256 encryption of the store. Requires -EncryptionKey.
+
+.PARAMETER EncryptionKey
+    SecureString encryption key (minimum 8 characters). Validated for length
+    without exposing the plaintext in parameter metadata.
+
+.PARAMETER NonInteractive
+    Alias: -Silent. Suppresses prompts; causes the script to fail fast when
+    any required value is missing.
+
+.PARAMETER SharePasswordFromEnv
+    Marker switch. Set automatically by Request-Elevation when a SecureString
+    password must be marshalled across the UAC boundary via a DPAPI-encrypted
+    environment variable. Users should not pass this manually.
+
+.PARAMETER EncryptionKeyFromEnv
+    Marker switch. Set automatically by Request-Elevation when a SecureString
+    encryption key must be marshalled across the UAC boundary via a
+    DPAPI-encrypted environment variable. Users should not pass this manually.
+
+.EXAMPLE
+    PS> .\source-capture.ps1 -DestinationShare \\NewPC\MigrationShare$
+
+    Captures all user profiles and writes the store to the destination share,
+    auto-installing USMT if needed.
+
+.EXAMPLE
+    PS> .\source-capture.ps1 -DestinationShare \\NewPC\MigrationShare$ `
+        -IncludeUsers 'alice','bob' -ExcludeUsers 'tempuser'
+
+    Captures only the specified profiles, skipping 'tempuser'.
+
+.EXAMPLE
+    PS> $key = Read-Host -AsSecureString 'Encryption key'
+    PS> .\source-capture.ps1 -DestinationShare \\NewPC\MigrationShare$ `
+        -EncryptStore -EncryptionKey $key -NonInteractive
+
+    Runs unattended with an AES-256 encrypted store.
+
+.INPUTS
+    None. This script does not accept piped input.
+
+.OUTPUTS
+    None. Exit code 0 indicates success; non-zero indicates failure. A capture
+    log is written under the migration folder's Logs subdirectory.
+
 .NOTES
-    Must be run as Administrator (auto-elevates via UAC if needed).
+    - Requires Administrator privileges (auto-elevates via UAC).
+    - Destination share must already exist (run destination-setup.ps1 first).
+    - SecureString parameters are cleared from memory as soon as they are
+      consumed.
+
+.LINK
+    https://github.com/supermarsx/migration-merlin
+
+.LINK
+    .\destination-setup.ps1
+
+.LINK
+    .\post-migration-verify.ps1
 #>
 
+# ============================================================================
+# PARAMETER BLOCK (with validation attributes added in Phase 3 / t1-e12)
+# ----------------------------------------------------------------------------
+# ValidateScript attributes use inline regex / Test-Path checks rather than
+# calling MigrationValidators.psm1 functions directly — the param binder
+# evaluates these attributes before the script body runs (where Import-Module
+# lives), so referencing module functions here would fail with
+# "The term 'Test-UncPath' is not recognized" when the script is invoked
+# stand-alone. The shared Test-* helpers are unit-tested in their own module
+# suite; the inline checks here mirror their logic for the narrow cases the
+# param-binder needs.
+# ============================================================================
+[CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [Parameter(Mandatory = $false)]
+    [ValidateScript({
+        [string]::IsNullOrEmpty($_) -or
+        ($_ -match '^\\\\[^\\/:*?"<>|]+\\[^\\/:*?"<>|]+(\\.*)?$')
+    })]
     [string]$DestinationShare = "",
 
+    [ValidateScript({
+        [string]::IsNullOrEmpty($_) -or
+        ((Test-Path -LiteralPath $_ -PathType Container) -and
+         (Test-Path -LiteralPath (Join-Path $_ 'scanstate.exe') -PathType Leaf))
+    })]
     [string]$USMTPath = "",
 
     [string]$ShareUsername = "",
-    [string]$SharePassword = "",
+    # Converted to [SecureString] in t1-e12 so the credential never lives as
+    # a plaintext string in the param binder. Use ConvertFrom-SecureStringPlain
+    # (defined below) at the point of use to obtain the temporary plaintext
+    # required by `net use`.
+    [securestring]$SharePassword,
 
+    [ValidateScript({
+        foreach ($u in $_) {
+            if ([string]::IsNullOrWhiteSpace($u) -or $u -match '[\\/\[\]:;\|=,\+\*\?<>]') {
+                throw "Invalid profile name: '$u'"
+            }
+        }
+        $true
+    })]
     [string[]]$IncludeUsers = @(),
+
+    [ValidateScript({
+        foreach ($u in $_) {
+            if ([string]::IsNullOrWhiteSpace($u) -or $u -match '[\\/\[\]:;\|=,\+\*\?<>]') {
+                throw "Invalid profile name: '$u'"
+            }
+        }
+        $true
+    })]
     [string[]]$ExcludeUsers = @(),
 
     [switch]$ExtraData,
@@ -27,422 +175,101 @@ param(
     [switch]$SkipUSMTInstall,
     [switch]$DryRun,
     [switch]$EncryptStore,
-    [string]$EncryptionKey = "",
+    # SecureString in t1-e12. Length floor enforced by inline check mirroring
+    # Test-EncryptionKeyStrength (8 char minimum).
+    [ValidateScript({
+        $null -eq $_ -or
+        ([System.Net.NetworkCredential]::new('', $_).Password.Length -ge 8)
+    })]
+    [securestring]$EncryptionKey,
     [Alias("Silent")]
-    [switch]$NonInteractive
+    [switch]$NonInteractive,
+
+    # Marker switches: present when Request-Elevation marshalled a SecureString
+    # value via the MIGRATION_MERLIN_SECURE_* env-var mechanism. With the
+    # t1-e12 SecureString conversion these are now fully functional — the env
+    # var is read below and rehydrated into the SecureString parameter.
+    [switch]$SharePasswordFromEnv,
+    [switch]$EncryptionKeyFromEnv
 )
+
+$ErrorActionPreference = "Stop"
+
+# ============================================================================
+# MODULE IMPORTS (Phase p2 — t1-e6; MigrationValidators + ErrorHandling added
+# in Phase 3 — t1-e12)
+# ============================================================================
+Import-Module "$PSScriptRoot\MigrationConstants.psm1" -Force
+Import-Module "$PSScriptRoot\MigrationUI.psm1" -Force
+Import-Module "$PSScriptRoot\USMTTools.psm1" -Force
+Import-Module "$PSScriptRoot\MigrationState.psm1" -Force
+Import-Module "$PSScriptRoot\MigrationValidators.psm1" -Force
+Import-Module "$PSScriptRoot\ErrorHandling.psm1" -Force
+. "$PSScriptRoot\Invoke-Elevated.ps1"
+. "$PSScriptRoot\MigrationLogging.ps1"
+
+# ============================================================================
+# SECURESTRING HELPER (Phase 3 — t1-e12)
+# ----------------------------------------------------------------------------
+# Just-in-time conversion from [SecureString] to plaintext. Callers are
+# expected to clear the returned variable (set to $null) as soon as the
+# plaintext has been consumed.
+# ============================================================================
+function ConvertFrom-SecureStringPlain {
+    [OutputType([string])]
+    param([Parameter(Mandatory)][securestring]$Secure)
+    return [System.Net.NetworkCredential]::new('', $Secure).Password
+}
+
+# ============================================================================
+# SECURE ENV-VAR PICKUP (DPAPI hand-off from Request-Elevation)
+# ----------------------------------------------------------------------------
+# Phase 3 / t1-e12: SharePassword and EncryptionKey are now [SecureString]
+# params, so the DPAPI hand-off stays in SecureString form end-to-end. The
+# plaintext conversion is deferred until the exact call site that needs it
+# (net use, scanstate /key:), via ConvertFrom-SecureStringPlain.
+# ============================================================================
+if ($env:MIGRATION_MERLIN_SECURE_SHAREPASSWORD -and -not $SharePassword) {
+    try {
+        $SharePassword = $env:MIGRATION_MERLIN_SECURE_SHAREPASSWORD | ConvertTo-SecureString
+    } catch {
+        Write-Warning "Failed to decrypt MIGRATION_MERLIN_SECURE_SHAREPASSWORD: $_"
+    } finally {
+        Remove-Item env:MIGRATION_MERLIN_SECURE_SHAREPASSWORD -Force -ErrorAction SilentlyContinue
+    }
+}
+if ($env:MIGRATION_MERLIN_SECURE_ENCRYPTIONKEY -and -not $EncryptionKey) {
+    try {
+        $EncryptionKey = $env:MIGRATION_MERLIN_SECURE_ENCRYPTIONKEY | ConvertTo-SecureString
+    } catch {
+        Write-Warning "Failed to decrypt MIGRATION_MERLIN_SECURE_ENCRYPTIONKEY: $_"
+    } finally {
+        Remove-Item env:MIGRATION_MERLIN_SECURE_ENCRYPTIONKEY -Force -ErrorAction SilentlyContinue
+    }
+}
 
 # ============================================================================
 # AUTO-ELEVATION
 # ============================================================================
-$_isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
-    ).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-
-if (-not $_isAdmin) {
-    Write-Host "`n  This script requires Administrator privileges." -ForegroundColor Yellow
-    Write-Host "  Requesting elevation via UAC...`n" -ForegroundColor Cyan
-
-    $paramStr = ""
-    foreach ($key in $PSBoundParameters.Keys) {
-        $val = $PSBoundParameters[$key]
-        if ($val -is [switch]) {
-            if ($val.IsPresent) { $paramStr += " -$key" }
-        } elseif ($val -is [array]) {
-            $items = ($val | ForEach-Object { "`"$_`"" }) -join ","
-            $paramStr += " -$key $items"
-        } else {
-            $paramStr += " -$key `"$val`""
-        }
-    }
-    $argList = "-ExecutionPolicy Bypass -File `"$PSCommandPath`"$paramStr"
-
-    try {
-        $psExe = (Get-Process -Id $PID).Path
-        Start-Process -FilePath $psExe -ArgumentList $argList -Verb RunAs -Wait
-    } catch {
-        Write-Host "  Elevation cancelled or failed." -ForegroundColor Red
-        Write-Host "  Right-click this script and select 'Run as Administrator'.`n" -ForegroundColor Yellow
-        if ($Host.Name -notmatch 'ISE') { pause }
-    }
-    exit
-}
+Request-Elevation -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-$ErrorActionPreference = "Stop"
+$LocalLogFolder = $MigrationConstants.Logging.DefaultLogFolder
+# Consolidated migration run state (t1-e11): replaces the six parallel
+# $script: globals (USMTDir, MappedDrive, ShareConnected, TotalSteps,
+# CurrentStep, StartTime) with a single hashtable wrapper.
+$script:State = New-MigrationState -TotalSteps $MigrationConstants.UI.SourceTotalSteps
 
-$LocalLogFolder = "$env:TEMP\MigrationMerlin"
-$script:USMTDir = $null
-$script:MappedDrive = $null
-$script:ShareConnected = $false
-$script:TotalSteps = 7
-$script:CurrentStep = 0
-$script:StartTime = Get-Date
+# Initialize the MigrationUI module's internal state so Show-Step picks up the
+# right totals even when callers don't pass -State explicitly.
+Set-MigrationUIState -State $script:State
 
-# Bundled USMT zip (ships with the toolkit - preferred source)
-$script:USMTZipName = "user-state-migration-tool.zip"
-$script:USMTZipInternalRoot = "User State Migration Tool"
-
-# Windows ADK download URL (online fallback)
-$script:ADKInstallerUrl = "https://go.microsoft.com/fwlink/?linkid=2271337"
-$script:ADKInstallerFile = "adksetup.exe"
-
-# Load shared logging infrastructure
-$_loggingPath = "$PSScriptRoot\MigrationLogging.ps1"
-if (-not (Test-Path $_loggingPath)) {
-    Write-Host "  FATAL: MigrationLogging.ps1 not found at: $_loggingPath" -ForegroundColor Red
-    Write-Host "  Ensure all toolkit files are in the same directory." -ForegroundColor Yellow
-    exit 1
-}
-. $_loggingPath
+# Load shared logging infrastructure (already dot-sourced above via module
+# import section; Initialize-Logging is defined in MigrationLogging.ps1).
 $LogFile = Initialize-Logging -PrimaryLogFile (Join-Path $LocalLogFolder "source-capture.log") -ScriptName "source-capture"
-Write-Log "Script started with parameters: $($PSBoundParameters | ConvertTo-Json -Compress -Depth 1)"
-
-# ============================================================================
-# PROCESS LAUNCHER (mockable wrapper for reliable ExitCode)
-# ============================================================================
-function Start-TrackedProcess([string]$FilePath, [string]$Arguments) {
-    <# Launches a process using System.Diagnostics.Process for reliable .ExitCode.
-       Start-Process -PassThru has a known bug where ExitCode is empty after HasExited loop.
-       Returns a [System.Diagnostics.Process] object. #>
-    $psi = [System.Diagnostics.ProcessStartInfo]::new()
-    $psi.FileName = $FilePath
-    $psi.Arguments = $Arguments
-    $psi.UseShellExecute = $false
-    $psi.CreateNoWindow = $false
-    return [System.Diagnostics.Process]::Start($psi)
-}
-
-# ============================================================================
-# UI HELPERS
-# ============================================================================
-function Show-Banner {
-    param([string]$Title, [ConsoleColor]$Color = "Magenta")
-    $width = 56
-    $pad = [math]::Max(0, [math]::Floor(($width - $Title.Length - 2) / 2))
-    $line = "=" * $width
-    Write-Host ""
-    Write-Host "  $line" -ForegroundColor $Color
-    Write-Host "  $(' ' * $pad) $Title $(' ' * $pad)" -ForegroundColor $Color
-    Write-Host "  $line" -ForegroundColor $Color
-    Write-Host ""
-}
-
-function Show-Step {
-    param([string]$Description)
-    $script:CurrentStep++
-    $pct = [math]::Round(($script:CurrentStep / $script:TotalSteps) * 100)
-    $elapsed = ((Get-Date) - $script:StartTime).ToString('mm\:ss')
-    $barLen = 30
-    $filled = [math]::Floor($barLen * $script:CurrentStep / $script:TotalSteps)
-    $empty = $barLen - $filled
-    $bar = ([char]0x2588).ToString() * $filled + ([char]0x2591).ToString() * $empty
-
-    Write-Host ""
-    Write-Host "  [$bar] $pct% " -NoNewline -ForegroundColor Cyan
-    Write-Host "Step $($script:CurrentStep)/$($script:TotalSteps)" -NoNewline -ForegroundColor DarkGray
-    Write-Host "  ($elapsed elapsed)" -ForegroundColor DarkGray
-    Write-Host "  >> $Description" -ForegroundColor White
-    Write-Host "  $('-' * 50)" -ForegroundColor DarkGray
-}
-
-function Show-Status {
-    param([string]$Message, [string]$Level = "INFO")
-    $icon = switch ($Level) {
-        "OK"      { "[+]" }
-        "FAIL"    { "[X]" }
-        "WARN"    { "[!]" }
-        "WAIT"    { "[~]" }
-        "INFO"    { "[i]" }
-        default   { "[.]" }
-    }
-    $color = switch ($Level) {
-        "OK"      { "Green" }
-        "FAIL"    { "Red" }
-        "WARN"    { "Yellow" }
-        "WAIT"    { "DarkCyan" }
-        default   { "Gray" }
-    }
-    Write-Host "     $icon $Message" -ForegroundColor $color
-}
-
-function Show-Detail {
-    param([string]$Label, [string]$Value)
-    Write-Host "         $Label : " -NoNewline -ForegroundColor DarkGray
-    Write-Host $Value -ForegroundColor White
-}
-
-function Show-ProgressBar {
-    param([int]$Current, [int]$Total, [string]$Label, [string]$Detail = "")
-    if ($Total -le 0) { return }
-    $pct = [math]::Min(100, [math]::Round(($Current / $Total) * 100))
-    $barLen = 35
-    $filled = [math]::Floor($barLen * $pct / 100)
-    $empty = $barLen - $filled
-    $bar = ([char]0x2588).ToString() * $filled + ([char]0x2591).ToString() * $empty
-    $line = "     [$bar] $pct% - $Label"
-    if ($Detail) { $line += " ($Detail)" }
-    Write-Host "`r$line    " -NoNewline -ForegroundColor Cyan
-}
-
-function Show-SubProgress {
-    param([string]$Item, [int]$Index, [int]$Total)
-    $pct = [math]::Round(($Index / $Total) * 100)
-    Write-Host "`r         ($Index/$Total) $Item                              " -NoNewline -ForegroundColor DarkGray
-}
-
-# Write-Log is provided by MigrationLogging.ps1 (robust, with fallback paths)
-
-# ============================================================================
-# USMT DETECTION
-# ============================================================================
-function Find-USMT {
-    if ($USMTPath -and (Test-Path $USMTPath)) {
-        if (Test-Path (Join-Path $USMTPath "scanstate.exe")) {
-            $script:USMTDir = $USMTPath
-            return $true
-        }
-    }
-
-    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" }
-            elseif ([Environment]::Is64BitOperatingSystem) { "amd64" }
-            else { "x86" }
-
-    $searchPaths = @(
-        "$PSScriptRoot\USMT-Tools"
-        "$env:TEMP\USMT-Tools"
-        "${env:ProgramFiles(x86)}\Windows Kits\10\Assessment and Deployment Kit\User State Migration Tool"
-        "${env:ProgramFiles}\Windows Kits\10\Assessment and Deployment Kit\User State Migration Tool"
-        "C:\USMT"
-        "C:\Tools\USMT"
-    )
-
-    foreach ($basePath in $searchPaths) {
-        if (Test-Path $basePath) {
-            $archPath = Join-Path $basePath $arch
-            if (Test-Path (Join-Path $archPath "scanstate.exe")) {
-                $script:USMTDir = $archPath
-                return $true
-            }
-            if ($arch -eq "arm64") {
-                $amd64Path = Join-Path $basePath "amd64"
-                if (Test-Path (Join-Path $amd64Path "scanstate.exe")) {
-                    $script:USMTDir = $amd64Path
-                    return $true
-                }
-            }
-            if (Test-Path (Join-Path $basePath "scanstate.exe")) {
-                $script:USMTDir = $basePath
-                return $true
-            }
-        }
-    }
-
-    return $false
-}
-
-# ============================================================================
-# USMT EXTRACTION FROM BUNDLED ZIP
-# ============================================================================
-function Expand-BundledUSMT {
-    $zipSearchPaths = @(
-        (Join-Path $PSScriptRoot $script:USMTZipName)
-        (Join-Path (Split-Path $PSScriptRoot -Parent) $script:USMTZipName)
-        (Join-Path $env:TEMP $script:USMTZipName)
-    )
-
-    $zipPath = $null
-    foreach ($p in $zipSearchPaths) {
-        if (Test-Path $p) { $zipPath = $p; break }
-    }
-    if (-not $zipPath) { return $false }
-
-    $zipSizeMB = [math]::Round((Get-Item $zipPath).Length / 1MB, 1)
-    Show-Status "Found bundled USMT zip: $zipPath (${zipSizeMB} MB)" "OK"
-    Write-Log "Found bundled USMT zip: $zipPath"
-
-    $extractTarget = Join-Path $PSScriptRoot "USMT-Tools"
-    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" }
-            elseif ([Environment]::Is64BitOperatingSystem) { "amd64" }
-            else { "x86" }
-    $archTarget = Join-Path $extractTarget $arch
-
-    if (Test-Path (Join-Path $archTarget "scanstate.exe")) {
-        Show-Status "USMT already extracted at: $archTarget" "OK"
-        $script:USMTDir = $archTarget
-        return $true
-    }
-
-    Show-Status "Extracting USMT ($arch) from zip..." "WAIT"
-    Write-Log "Extracting USMT $arch from $zipPath to $extractTarget"
-
-    try {
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        $zip = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
-        $prefix = "$($script:USMTZipInternalRoot)/$arch/"
-        $totalEntries = ($zip.Entries | Where-Object { $_.FullName.StartsWith($prefix) -and $_.Length -gt 0 }).Count
-        $extracted = 0
-
-        foreach ($entry in $zip.Entries) {
-            if (-not $entry.FullName.StartsWith($prefix)) { continue }
-            $relativePath = $entry.FullName.Substring($prefix.Length)
-            if (-not $relativePath) { continue }
-            $destPath = Join-Path $archTarget $relativePath
-
-            if ($entry.FullName.EndsWith('/')) {
-                if (-not (Test-Path $destPath)) { New-Item -Path $destPath -ItemType Directory -Force | Out-Null }
-                continue
-            }
-            $parentDir = Split-Path $destPath -Parent
-            if (-not (Test-Path $parentDir)) { New-Item -Path $parentDir -ItemType Directory -Force | Out-Null }
-            [System.IO.Compression.ZipFileExtensions]::ExtractToFile($entry, $destPath, $true)
-            $extracted++
-            if ($totalEntries -gt 0 -and ($extracted % 10 -eq 0 -or $extracted -eq $totalEntries)) {
-                Show-ProgressBar $extracted $totalEntries "Extracting" "$extracted / $totalEntries files"
-            }
-        }
-        $zip.Dispose()
-        Write-Host ""
-
-        if (Test-Path (Join-Path $archTarget "scanstate.exe")) {
-            Show-Status "Extracted $extracted files to: $archTarget" "OK"
-            $script:USMTDir = $archTarget
-            return $true
-        }
-        Show-Status "Extraction completed but scanstate.exe not found" "FAIL"
-        return $false
-    } catch {
-        Show-Status "Failed to extract USMT zip: $_" "FAIL"
-        Write-Log "USMT zip extraction error: $_" "ERROR"
-        return $false
-    } finally {
-        if ($zip) { $zip.Dispose() }
-    }
-}
-
-# ============================================================================
-# USMT ONLINE DOWNLOAD & INSTALL (fallback)
-# ============================================================================
-function Install-USMTOnline {
-    Show-Status "Downloading Windows ADK (USMT component only)..." "WAIT"
-
-    $downloadDir = Join-Path $env:TEMP "ADK-Download"
-    if (-not (Test-Path $downloadDir)) { New-Item -Path $downloadDir -ItemType Directory -Force | Out-Null }
-    $installerPath = Join-Path $downloadDir $script:ADKInstallerFile
-
-    try {
-        Show-Status "Downloading ADK setup bootstrapper..." "WAIT"
-        $downloaded = $false
-        $downloadErrors = @()
-
-        # Method 1: Invoke-WebRequest (most reliable in elevated contexts)
-        if (-not $downloaded) {
-            try {
-                Show-Status "Trying Invoke-WebRequest..." "WAIT"
-                [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-                Invoke-WebRequest -Uri $script:ADKInstallerUrl -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
-                if ((Test-Path $installerPath) -and (Get-Item $installerPath).Length -gt 50KB) { $downloaded = $true }
-                elseif (Test-Path $installerPath) { Remove-Item $installerPath -Force -ErrorAction SilentlyContinue; throw "Downloaded file too small (likely error page)" }
-            } catch { $downloadErrors += "Invoke-WebRequest: $_" }
-        }
-
-        # Method 2: System.Net.HttpClient (works without BITS service)
-        if (-not $downloaded) {
-            try {
-                Show-Status "Trying HttpClient..." "WAIT"
-                $handler = [System.Net.Http.HttpClientHandler]::new()
-                $handler.UseDefaultCredentials = $true
-                $client = [System.Net.Http.HttpClient]::new($handler)
-                $client.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0")
-                $bytes = $client.GetByteArrayAsync($script:ADKInstallerUrl).GetAwaiter().GetResult()
-                [System.IO.File]::WriteAllBytes($installerPath, $bytes)
-                $client.Dispose()
-                if ((Test-Path $installerPath) -and (Get-Item $installerPath).Length -gt 50KB) { $downloaded = $true }
-                elseif (Test-Path $installerPath) { Remove-Item $installerPath -Force -ErrorAction SilentlyContinue; throw "Downloaded file too small (likely error page)" }
-            } catch { $downloadErrors += "HttpClient: $_" }
-        }
-
-        # Method 3: BITS (often fails in elevated/service contexts)
-        if (-not $downloaded -and (Get-Command Start-BitsTransfer -ErrorAction SilentlyContinue)) {
-            try {
-                Show-Status "Trying BITS transfer..." "WAIT"
-                Start-BitsTransfer -Source $script:ADKInstallerUrl -Destination $installerPath -ErrorAction Stop
-                if ((Test-Path $installerPath) -and (Get-Item $installerPath).Length -gt 50KB) { $downloaded = $true }
-                elseif (Test-Path $installerPath) { Remove-Item $installerPath -Force -ErrorAction SilentlyContinue; throw "Downloaded file too small (likely error page)" }
-            } catch { $downloadErrors += "BITS: $_" }
-        }
-
-        # Method 4: WebClient (legacy fallback)
-        if (-not $downloaded) {
-            try {
-                Show-Status "Trying WebClient..." "WAIT"
-                $wc = New-Object System.Net.WebClient
-                $wc.Headers.Add("User-Agent", "Mozilla/5.0")
-                $wc.UseDefaultCredentials = $true
-                $wc.DownloadFile($script:ADKInstallerUrl, $installerPath)
-                if ((Test-Path $installerPath) -and (Get-Item $installerPath).Length -gt 50KB) { $downloaded = $true }
-                elseif (Test-Path $installerPath) { Remove-Item $installerPath -Force -ErrorAction SilentlyContinue; throw "Downloaded file too small (likely error page)" }
-            } catch { $downloadErrors += "WebClient: $_" }
-        }
-
-        if (-not $downloaded) {
-            foreach ($e in $downloadErrors) { Write-Log "Download attempt failed: $e" "ERROR" }
-            throw ($downloadErrors | Select-Object -Last 1)
-        }
-
-        $fileSize = [math]::Round((Get-Item $installerPath).Length / 1MB, 2)
-        Show-Status "ADK installer downloaded (${fileSize} MB)" "OK"
-    } catch {
-        Show-Status "Download failed: $_" "FAIL"
-        Show-Status "This often happens when UAC elevated to a different admin account" "INFO"
-        Show-Status "Get ADK from: https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install" "INFO"
-        return $false
-    }
-
-    try {
-        Show-Status "Installing USMT component (this takes a few minutes)..." "WAIT"
-        $installArgs = @("/quiet", "/norestart", "/features", "OptionId.UserStateMigrationTool", "/ceip", "off")
-        $installStart = Get-Date
-        $proc = Start-TrackedProcess -FilePath $installerPath -Arguments ($installArgs -join ' ')
-        $frames = @('|','/','-','\')
-        $i = 0
-        while (-not $proc.HasExited) {
-            $elapsed = ((Get-Date) - $installStart).ToString('mm\:ss')
-            Write-Host "`r     [$($frames[$i % 4])] Installing USMT... ($elapsed elapsed)          " -NoNewline -ForegroundColor DarkCyan
-            Start-Sleep -Milliseconds 300; $i++
-        }
-        $proc.WaitForExit(); Write-Host ""
-        $installDuration = ((Get-Date) - $installStart).ToString('mm\:ss')
-
-        if ($proc.ExitCode -eq 0 -or $proc.ExitCode -eq 3010) {
-            Show-Status "USMT installed ($installDuration)" "OK"
-        } else {
-            Show-Status "ADK installer exit code: $($proc.ExitCode)" "FAIL"
-        }
-
-        if (Find-USMT) { Show-Status "USMT verified at: $($script:USMTDir)" "OK"; return $true }
-        Show-Status "USMT not found after install" "FAIL"
-        return $false
-    } catch {
-        Show-Status "Installation failed: $_" "FAIL"
-        return $false
-    } finally {
-        if (Test-Path $downloadDir) { Remove-Item $downloadDir -Recurse -Force -ErrorAction SilentlyContinue }
-    }
-}
-
-function Install-USMT {
-    Show-Status "USMT not found on this system" "WARN"
-
-    # Priority 1: Extract from bundled zip
-    Show-Status "Checking for bundled USMT zip..." "WAIT"
-    if (Expand-BundledUSMT) { return $true }
-
-    # Priority 2: Download ADK online
-    Show-Status "Bundled zip not found - trying online download..." "WARN"
-    return Install-USMTOnline
-}
+Write-Log "Script started with parameters: $(Format-SafeParams $PSBoundParameters)"
 
 # ============================================================================
 # PREREQUISITE CHECKS
@@ -541,16 +368,19 @@ function Test-Prerequisites {
 }
 
 # ============================================================================
-# USMT DETECTION + AUTO-INSTALL
+# USMT DETECTION + AUTO-INSTALL (delegates to USMTTools.psm1)
 # ============================================================================
 function Initialize-USMT {
     Show-Step "Locating USMT tools"
 
-    if (Find-USMT) {
-        $version = (Get-Item (Join-Path $script:USMTDir "scanstate.exe")).VersionInfo.FileVersion
-        Show-Status "USMT found: $($script:USMTDir)" "OK"
+    # First try: detection only (no install).
+    $found = Find-USMT -ExeName $MigrationConstants.USMT.ScanStateExe -USMTPathOverride $USMTPath
+    if ($found) {
+        $script:State.USMTDir = $found
+        $version = (Get-Item (Join-Path $script:State.USMTDir $MigrationConstants.USMT.ScanStateExe)).VersionInfo.FileVersion
+        Show-Status "USMT found: $($script:State.USMTDir)" "OK"
         Show-Detail "Version" $version
-        Write-Log "USMT found at $($script:USMTDir), version $version"
+        Write-Log "USMT found at $($script:State.USMTDir), version $version"
         return $true
     }
 
@@ -559,14 +389,18 @@ function Initialize-USMT {
         return $false
     }
 
-    $installed = Install-USMT
+    # Full install orchestration: Find -> Expand bundled -> ADK online.
+    $installed = Install-USMT -ExeName $MigrationConstants.USMT.ScanStateExe -USMTPathOverride $USMTPath
     if (-not $installed) {
         Show-Status "USMT is required for migration. Options:" "FAIL"
         Show-Status "  1. Install Windows ADK manually with USMT" "INFO"
         Show-Status "  2. Copy USMT binaries to C:\USMT" "INFO"
         Show-Status "  3. Specify path with -USMTPath" "INFO"
+        return $false
     }
-    return $installed
+    $script:State.USMTDir = $installed
+    Show-Status "USMT ready at: $($script:State.USMTDir)" "OK"
+    return $true
 }
 
 # ============================================================================
@@ -581,7 +415,7 @@ function Connect-DestinationShare {
         }
         Write-Host ""
         Write-Host "     Enter the destination share path" -ForegroundColor Yellow
-        Write-Host "     (e.g., \\DEST-PC\MigrationShare`$):" -ForegroundColor Yellow
+        Write-Host "     (e.g., \\DEST-PC\$($MigrationConstants.Defaults.ShareName)):" -ForegroundColor Yellow
         $DestinationShare = Read-Host "     Share path"
         if (-not $DestinationShare) {
             Safe-Exit -Code 1 -Reason "No share path provided"
@@ -628,18 +462,25 @@ function Connect-DestinationShare {
 
     try {
         $netArgs = @("use", "${driveLetter}:", $DestinationShare)
+        $plainPwd = $null
         if ($ShareUsername -and $SharePassword) {
+            $plainPwd = ConvertFrom-SecureStringPlain -Secure $SharePassword
             $netArgs += "/user:$ShareUsername"
-            $netArgs += $SharePassword
+            $netArgs += $plainPwd
             Show-Status "Using provided credentials" "INFO"
         }
         $netArgs += "/persistent:no"
 
-        $result = & net @netArgs 2>&1
-        if ($LASTEXITCODE -ne 0) { throw "net use failed: $result" }
+        try {
+            $result = & net @netArgs 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "net use failed: $result" }
+        } finally {
+            # Scrub plaintext password reference as soon as net.exe has consumed it.
+            $plainPwd = $null
+        }
 
-        $script:MappedDrive = "${driveLetter}:"
-        $script:ShareConnected = $true
+        $script:State.MappedDrive = "${driveLetter}:"
+        $script:State.ShareConnected = $true
         Show-Status "Mapped: $DestinationShare -> ${driveLetter}:\" "OK"
     } catch {
         Write-Log "Share connection failed: $_" "ERROR"
@@ -829,12 +670,13 @@ function Backup-ExtraData {
         if (Test-Path $item.Src) {
             try {
                 $dest = Join-Path $extraDir $item.Dest
-                Copy-Item -Path $item.Src -Destination $dest -Recurse -Force -ErrorAction SilentlyContinue
+                Copy-Item -Path $item.Src -Destination $dest -Recurse -Force -ErrorAction Stop
                 Write-Host ""
                 Show-Status "$($item.Name) backed up" "OK"
             } catch {
                 Write-Host ""
                 Show-Status "$($item.Name) skipped: $_" "WARN"
+                Write-Log "$($item.Name) copy failed: $_" "WARN"
             }
         } else {
             Write-Host ""
@@ -891,52 +733,296 @@ function Backup-ExtraData {
 # ============================================================================
 # USMT SCANSTATE WITH LIVE PROGRESS
 # ============================================================================
-function Invoke-USMTCapture {
-    param([string[]]$Profiles)
+# ----------------------------------------------------------------------------
+# Build-ScanStateArguments
+#   Pure function: constructs the scanstate.exe argument array from inputs.
+#   No host output, no process launch, no $script: state read/write — safe for
+#   direct unit tests. Preserves the exact argument order/format the original
+#   inline code produced.
+# ----------------------------------------------------------------------------
+function Build-ScanStateArguments {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$StorePath,
 
-    Show-Step "Capturing user state (USMT ScanState)"
+        [Parameter(Mandatory = $true)]
+        [string]$USMTDir,
 
-    $storePath = Join-Path "$($script:MappedDrive)\" "USMT"
-    if (-not (Test-Path $storePath)) {
-        New-Item -Path $storePath -ItemType Directory -Force | Out-Null
-    }
+        [Parameter(Mandatory = $true)]
+        [string]$ScanLog,
 
-    $scanstate = Join-Path $script:USMTDir "scanstate.exe"
-    $logPath = Join-Path "$($script:MappedDrive)\" "Logs"
-    if (-not (Test-Path $logPath)) {
-        New-Item -Path $logPath -ItemType Directory -Force | Out-Null
-    }
-    $scanLog = Join-Path $logPath "scanstate.log"
-    $scanProgress = Join-Path $logPath "scanstate-progress.log"
+        [Parameter(Mandatory = $true)]
+        [string]$ScanProgress,
 
-    # Build arguments
+        [string[]]$Profiles = @(),
+
+        [hashtable]$ResolvedUserMap = @{},
+
+        [string[]]$AllShortNames = @(),
+
+        [string]$CustomXmlPath = "",
+
+        [switch]$Encrypt,
+
+        [string]$EncryptionKey = "",
+
+        [int]$Verbosity = 5
+    )
+
     $scanArgs = @(
-        "`"$storePath`""
-        "/i:`"$(Join-Path $script:USMTDir 'MigDocs.xml')`""
-        "/i:`"$(Join-Path $script:USMTDir 'MigApp.xml')`""
-        "/v:5"
-        "/l:`"$scanLog`""
-        "/progress:`"$scanProgress`""
+        "`"$StorePath`""
+        "/i:`"$(Join-Path $USMTDir 'MigDocs.xml')`""
+        "/i:`"$(Join-Path $USMTDir 'MigApp.xml')`""
+        "/v:$Verbosity"
+        "/l:`"$ScanLog`""
+        "/progress:`"$ScanProgress`""
         "/c"
         "/o"
         "/vsc"
         "/efs:copyraw"
     )
 
-    # Custom XML
-    $customXml = Join-Path $PSScriptRoot "custom-migration.xml"
-    if (Test-Path $customXml) {
-        Copy-Item $customXml -Destination "$($script:MappedDrive)\" -Force
-        $scanArgs += "/i:`"$customXml`""
-        Show-Status "Custom migration rules included" "OK"
+    # Custom XML (only if explicitly provided; orchestrator decides whether to
+    # test existence and/or copy the file)
+    if ($CustomXmlPath) {
+        $scanArgs += "/i:`"$CustomXmlPath`""
     }
 
-    # User selection — resolve actual domain\user from SID for accurate USMT filtering
+    # User include/exclude
     if ($Profiles.Count -gt 0) {
-        # Build a lookup of short-username → full DOMAIN\username from Win32_UserProfile SIDs
+        foreach ($user in $Profiles) {
+            $fullName = if ($ResolvedUserMap.ContainsKey($user)) {
+                $ResolvedUserMap[$user]
+            } else {
+                "$env:USERDOMAIN\$user"
+            }
+            $scanArgs += "/ui:`"$fullName`""
+            $scanArgs += "/ui:`"*\$user`""
+        }
+
+        foreach ($name in $AllShortNames) {
+            if ($name -notin $Profiles) {
+                $fullName = if ($ResolvedUserMap.ContainsKey($name)) {
+                    $ResolvedUserMap[$name]
+                } else {
+                    "$env:USERDOMAIN\$name"
+                }
+                $scanArgs += "/ue:`"$fullName`""
+                $scanArgs += "/ue:`"*\$name`""
+            }
+        }
+
+        $scanArgs += '/ue:"NT AUTHORITY\*"'
+        $scanArgs += '/ue:"BUILTIN\*"'
+    }
+
+    if ($Encrypt) {
+        $scanArgs += "/encrypt /key:`"$EncryptionKey`""
+    }
+
+    return ,$scanArgs
+}
+
+# ----------------------------------------------------------------------------
+# Invoke-ScanStateProcess
+#   Launches scanstate.exe via Start-TrackedProcess. Declares SupportsShouldProcess
+#   so Phase 4 can wire -WhatIf. Returns the running process object.
+# ----------------------------------------------------------------------------
+function Invoke-ScanStateProcess {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ScanStateExe,
+
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    if ($PSCmdlet.ShouldProcess($ScanStateExe, "Launch ScanState")) {
+        return Start-TrackedProcess -FilePath $ScanStateExe -Arguments ($Arguments -join ' ')
+    }
+    return $null
+}
+
+# ----------------------------------------------------------------------------
+# Watch-ScanStateProgress
+#   Polls the running scanstate process, prints a live spinner/size/speed line,
+#   and returns the final exit code. Blocks until the process exits.
+# ----------------------------------------------------------------------------
+function Watch-ScanStateProgress {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory = $true)]
+        $Process,
+
+        [Parameter(Mandatory = $true)]
+        [string]$StorePath,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ScanProgressFile,
+
+        [Parameter(Mandatory = $true)]
+        [datetime]$StartTime,
+
+        [int]$PollIntervalSeconds = 2
+    )
+
+    $lastSize = 0
+    $speedSamples = @()
+    $lastCheck = Get-Date
+    $frames = @([char]0x2588, [char]0x2593, [char]0x2592, [char]0x2591)
+    $frameIdx = 0
+
+    while (-not $Process.HasExited) {
+        $elapsed = ((Get-Date) - $StartTime).ToString('hh\:mm\:ss')
+        $frameIdx++
+
+        if (Test-Path $StorePath) {
+            $items = Get-ChildItem -Path $StorePath -Recurse -ErrorAction SilentlyContinue
+            $currentSize = ($items | Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum
+            if (-not $currentSize) { $currentSize = 0 }
+            $fileCount = ($items | Measure-Object).Count
+
+            $sizeMB = [math]::Round($currentSize / 1MB, 1)
+            $sizeGB = [math]::Round($currentSize / 1GB, 2)
+            $sizeStr = if ($sizeGB -ge 1) { "${sizeGB} GB" } else { "${sizeMB} MB" }
+
+            $now = Get-Date
+            $interval = ($now - $lastCheck).TotalSeconds
+            if ($interval -ge 3 -and $currentSize -gt $lastSize) {
+                $speedMBs = [math]::Round(($currentSize - $lastSize) / 1MB / $interval, 1)
+                $speedSamples += $speedMBs
+                if ($speedSamples.Count -gt 20) { $speedSamples = $speedSamples[-20..-1] }
+                $lastSize = $currentSize
+                $lastCheck = $now
+            }
+            $avgSpeed = if ($speedSamples.Count -gt 0) {
+                [math]::Round(($speedSamples | Measure-Object -Average).Average, 1)
+            } else { 0 }
+            $speedStr = if ($avgSpeed -gt 0) { " @ ${avgSpeed} MB/s" } else { "" }
+
+            $usmtProgress = ""
+            if (Test-Path $ScanProgressFile) {
+                $lastLine = Get-Content $ScanProgressFile -Tail 1 -ErrorAction SilentlyContinue
+                if ($lastLine -and $lastLine.Length -gt 0) {
+                    if ($lastLine.Length -gt 40) { $lastLine = $lastLine.Substring(0, 37) + "..." }
+                    $usmtProgress = " | $lastLine"
+                }
+            }
+
+            $spin = $frames[$frameIdx % $frames.Count]
+            Write-Host "`r     [$spin] $sizeStr | $fileCount files | ${elapsed}${speedStr}${usmtProgress}              " -NoNewline -ForegroundColor Cyan
+        } else {
+            $spin = $frames[$frameIdx % $frames.Count]
+            Write-Host "`r     [$spin] Initializing ScanState... ($elapsed)              " -NoNewline -ForegroundColor DarkCyan
+        }
+
+        Start-Sleep -Seconds $PollIntervalSeconds
+    }
+    $Process.WaitForExit()
+    Write-Host ""
+
+    return [int]$Process.ExitCode
+}
+
+# ----------------------------------------------------------------------------
+# ConvertFrom-ScanStateExitCode
+#   Pure function: maps a scanstate.exe exit code to a status descriptor.
+#   Returns a hashtable: @{ Code; Severity; Message; ShouldContinue }.
+#   Safe for unit tests — no host output, no side effects.
+# ----------------------------------------------------------------------------
+function ConvertFrom-ScanStateExitCode {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$ExitCode
+    )
+
+    switch ($ExitCode) {
+        0 {
+            return @{
+                Code           = 0
+                Severity       = 'Success'
+                Message        = 'SCANSTATE COMPLETED SUCCESSFULLY'
+                ShouldContinue = $true
+            }
+        }
+        3 {
+            return @{
+                Code           = 3
+                Severity       = 'Warning'
+                Message        = 'ScanState completed with warnings only'
+                ShouldContinue = $true
+            }
+        }
+        26 {
+            return @{
+                Code           = 26
+                Severity       = 'Warning'
+                Message        = 'Some files locked - a re-run may capture more'
+                ShouldContinue = $true
+            }
+        }
+        61 {
+            return @{
+                Code           = 61
+                Severity       = 'Warning'
+                Message        = 'SCANSTATE COMPLETED (some files skipped)'
+                ShouldContinue = $true
+            }
+        }
+        71 {
+            return @{
+                Code           = 71
+                Severity       = 'Error'
+                Message        = 'ScanState was cancelled or failed'
+                ShouldContinue = $false
+            }
+        }
+        default {
+            return @{
+                Code           = $ExitCode
+                Severity       = 'Error'
+                Message        = "ScanState exited with code: $ExitCode"
+                ShouldContinue = $false
+            }
+        }
+    }
+}
+
+# ----------------------------------------------------------------------------
+# Invoke-USMTCapture (orchestrator)
+#   External contract unchanged: takes $Profiles, returns scanstate exit code
+#   (or 0 on DryRun). Delegates to the four helpers above.
+# ----------------------------------------------------------------------------
+function Invoke-USMTCapture {
+    param([string[]]$Profiles)
+
+    Show-Step "Capturing user state (USMT ScanState)"
+
+    $storePath = Join-Path "$($script:State.MappedDrive)\" "USMT"
+    if (-not (Test-Path $storePath)) {
+        New-Item -Path $storePath -ItemType Directory -Force | Out-Null
+    }
+
+    $scanstate = Join-Path $script:State.USMTDir $MigrationConstants.USMT.ScanStateExe
+    $logPath = Join-Path "$($script:State.MappedDrive)\" "Logs"
+    if (-not (Test-Path $logPath)) {
+        New-Item -Path $logPath -ItemType Directory -Force | Out-Null
+    }
+    $scanLog = Join-Path $logPath "scanstate.log"
+    $scanProgress = Join-Path $logPath "scanstate-progress.log"
+
+    # Resolve users (needs Win32_UserProfile lookup — side-effectful, kept in orchestrator)
+    $resolvedMap = @{}
+    $allShortNames = @()
+    if ($Profiles.Count -gt 0) {
         $allWmiProfiles = Get-CimInstance Win32_UserProfile |
             Where-Object { -not $_.Special -and $_.LocalPath }
-        $resolvedMap = @{}
         foreach ($wp in $allWmiProfiles) {
             $short = Split-Path $wp.LocalPath -Leaf
             try {
@@ -944,47 +1030,76 @@ function Invoke-USMTCapture {
                     [System.Security.Principal.NTAccount]).Value
                 $resolvedMap[$short] = $ntAccount
             } catch {
-                # Fallback: try common domain prefixes
                 $resolvedMap[$short] = "$env:USERDOMAIN\$short"
             }
         }
+        $allShortNames = @($allWmiProfiles | ForEach-Object { Split-Path $_.LocalPath -Leaf } |
+            Where-Object { $_ -notin @('Public','Default','Default User','All Users') })
 
-        # /ui: for each selected user (with resolved domain)
         foreach ($user in $Profiles) {
             $fullName = if ($resolvedMap.ContainsKey($user)) { $resolvedMap[$user] } else { "$env:USERDOMAIN\$user" }
-            $scanArgs += "/ui:`"$fullName`""
-            # Also add with wildcard domain in case of domain/local mismatch
-            $scanArgs += "/ui:`"*\$user`""
             Write-Log "Include user: $fullName (and *\$user)"
         }
-
-        # /ue: for every non-selected user (belt + suspenders)
-        $allShortNames = $allWmiProfiles | ForEach-Object { Split-Path $_.LocalPath -Leaf } |
-            Where-Object { $_ -notin @('Public','Default','Default User','All Users') }
         foreach ($name in $allShortNames) {
             if ($name -notin $Profiles) {
                 $fullName = if ($resolvedMap.ContainsKey($name)) { $resolvedMap[$name] } else { "$env:USERDOMAIN\$name" }
-                $scanArgs += "/ue:`"$fullName`""
-                $scanArgs += "/ue:`"*\$name`""
                 Write-Log "Exclude user: $fullName (and *\$name)"
             }
         }
-
-        # Always exclude system accounts
-        $scanArgs += '/ue:"NT AUTHORITY\*"'
-        $scanArgs += '/ue:"BUILTIN\*"'
-        Show-Status "Users: $($Profiles -join ', ')" "OK"
     }
 
-    # Encryption
+    # Custom XML: copy to share if present, then pass path to builder.
+    $customXmlPath = ""
+    $localCustomXml = Join-Path $PSScriptRoot "custom-migration.xml"
+    if (Test-Path $localCustomXml) {
+        Copy-Item $localCustomXml -Destination "$($script:State.MappedDrive)\" -Force
+        $customXmlPath = $localCustomXml
+        Show-Status "Custom migration rules included" "OK"
+    }
+
+    # Encryption: prompt for key if needed, then delegate arg assembly.
+    # Post t1-e12, $EncryptionKey is a [SecureString]; prompt with Read-Host
+    # -AsSecureString and convert to plaintext only at the Build-ScanStateArguments
+    # boundary (which is itself a pure arg assembler consuming a plain string).
     if ($EncryptStore) {
         if (-not $EncryptionKey) {
             if ($NonInteractive) {
                 Safe-Exit -Code 1 -Reason "No -EncryptionKey provided and running non-interactive (required with -EncryptStore)"
             }
-            $EncryptionKey = Read-Host "     Enter encryption key"
+            $EncryptionKey = Read-Host "     Enter encryption key" -AsSecureString
         }
-        $scanArgs += "/encrypt /key:`"$EncryptionKey`""
+    }
+
+    # Just-in-time plaintext: scanstate.exe requires the key inline in the /key:
+    # argument, so there is no way to avoid at least one in-memory plaintext
+    # copy. The $plainEncKey variable is scrubbed below after arg assembly.
+    $plainEncKey = ""
+    if ($EncryptStore -and $EncryptionKey) {
+        $plainEncKey = ConvertFrom-SecureStringPlain -Secure $EncryptionKey
+    }
+
+    # Build scanstate arg list (pure)
+    $scanArgs = Build-ScanStateArguments `
+        -StorePath $storePath `
+        -USMTDir $script:State.USMTDir `
+        -ScanLog $scanLog `
+        -ScanProgress $scanProgress `
+        -Profiles $Profiles `
+        -ResolvedUserMap $resolvedMap `
+        -AllShortNames $allShortNames `
+        -CustomXmlPath $customXmlPath `
+        -Encrypt:$EncryptStore `
+        -EncryptionKey $plainEncKey `
+        -Verbosity 5
+
+    # Scrub the local plaintext reference. $scanArgs still contains the key
+    # in the /key:"..." entry but that is the minimum footprint required.
+    $plainEncKey = $null
+
+    if ($Profiles.Count -gt 0) {
+        Show-Status "Users: $($Profiles -join ', ')" "OK"
+    }
+    if ($EncryptStore) {
         Show-Status "Encryption enabled" "OK"
     }
 
@@ -1003,76 +1118,21 @@ function Invoke-USMTCapture {
     Show-Status "ScanState starting... this may take a while" "WAIT"
     Write-Host ""
 
-    # Launch ScanState
+    # Launch
     $scanStart = Get-Date
     try {
-        $process = Start-TrackedProcess -FilePath $scanstate -Arguments ($scanArgs -join ' ')
+        $process = Invoke-ScanStateProcess -ScanStateExe $scanstate -Arguments $scanArgs
     } catch {
         Safe-Exit -Code 1 -Reason "Failed to launch ScanState ($scanstate): $_"
     }
 
-    # Live progress monitoring
-    $lastSize = 0
-    $lastFileCount = 0
-    $speedSamples = @()
-    $lastCheck = Get-Date
-    $frames = @([char]0x2588, [char]0x2593, [char]0x2592, [char]0x2591)
-    $frameIdx = 0
+    # Watch + exit code
+    $exitCode = Watch-ScanStateProgress `
+        -Process $process `
+        -StorePath $storePath `
+        -ScanProgressFile $scanProgress `
+        -StartTime $scanStart
 
-    while (-not $process.HasExited) {
-        $elapsed = ((Get-Date) - $scanStart).ToString('hh\:mm\:ss')
-        $frameIdx++
-
-        if (Test-Path $storePath) {
-            $items = Get-ChildItem -Path $storePath -Recurse -ErrorAction SilentlyContinue
-            $currentSize = ($items | Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum
-            if (-not $currentSize) { $currentSize = 0 }
-            $fileCount = ($items | Measure-Object).Count
-
-            $sizeMB = [math]::Round($currentSize / 1MB, 1)
-            $sizeGB = [math]::Round($currentSize / 1GB, 2)
-            $sizeStr = if ($sizeGB -ge 1) { "${sizeGB} GB" } else { "${sizeMB} MB" }
-
-            # Speed calculation
-            $now = Get-Date
-            $interval = ($now - $lastCheck).TotalSeconds
-            if ($interval -ge 3 -and $currentSize -gt $lastSize) {
-                $speedMBs = [math]::Round(($currentSize - $lastSize) / 1MB / $interval, 1)
-                $speedSamples += $speedMBs
-                if ($speedSamples.Count -gt 20) { $speedSamples = $speedSamples[-20..-1] }
-                $lastSize = $currentSize
-                $lastCheck = $now
-            }
-            $avgSpeed = if ($speedSamples.Count -gt 0) {
-                [math]::Round(($speedSamples | Measure-Object -Average).Average, 1)
-            } else { 0 }
-            $speedStr = if ($avgSpeed -gt 0) { " @ ${avgSpeed} MB/s" } else { "" }
-
-            # Progress line from USMT progress file
-            $usmtProgress = ""
-            if (Test-Path $scanProgress) {
-                $lastLine = Get-Content $scanProgress -Tail 1 -ErrorAction SilentlyContinue
-                if ($lastLine -and $lastLine.Length -gt 0) {
-                    # Truncate long lines
-                    if ($lastLine.Length -gt 40) { $lastLine = $lastLine.Substring(0, 37) + "..." }
-                    $usmtProgress = " | $lastLine"
-                }
-            }
-
-            # Animated spinner
-            $spin = $frames[$frameIdx % $frames.Count]
-            Write-Host "`r     [$spin] $sizeStr | $fileCount files | ${elapsed}${speedStr}${usmtProgress}              " -NoNewline -ForegroundColor Cyan
-        } else {
-            $spin = $frames[$frameIdx % $frames.Count]
-            Write-Host "`r     [$spin] Initializing ScanState... ($elapsed)              " -NoNewline -ForegroundColor DarkCyan
-        }
-
-        Start-Sleep -Seconds 2
-    }
-    $process.WaitForExit()
-    Write-Host ""
-
-    $exitCode = $process.ExitCode
     $duration = ((Get-Date) - $scanStart).ToString('hh\:mm\:ss')
 
     # Final stats
@@ -1086,6 +1146,9 @@ function Invoke-USMTCapture {
     $finalMB = [math]::Round($finalSize / 1MB, 1)
     $finalGB = [math]::Round($finalSize / 1GB, 2)
     $finalStr = if ($finalGB -ge 1) { "${finalGB} GB" } else { "${finalMB} MB" }
+
+    # Map exit code -> status descriptor (pure)
+    $status = ConvertFrom-ScanStateExitCode -ExitCode $exitCode
 
     Write-Host ""
     switch ($exitCode) {
@@ -1106,7 +1169,7 @@ function Invoke-USMTCapture {
             Show-Status "Some files locked - a re-run may capture more" "WARN"
         }
         default {
-            Show-Status "ScanState exited with code: $exitCode" "FAIL"
+            Show-Status $status.Message "FAIL"
         }
     }
 
@@ -1124,12 +1187,12 @@ function Invoke-USMTCapture {
 # COMPLETION
 # ============================================================================
 function Set-CaptureComplete {
-    $marker = Join-Path "$($script:MappedDrive)\" "capture-complete.flag"
+    $marker = Join-Path "$($script:State.MappedDrive)\" "capture-complete.flag"
     $completionInfo = @{
         SourceComputer = $env:COMPUTERNAME
         SourceDomain   = $env:USERDOMAIN
         CaptureTime    = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
-        USMTVersion    = (Get-Item (Join-Path $script:USMTDir "scanstate.exe")).VersionInfo.FileVersion
+        USMTVersion    = (Get-Item (Join-Path $script:State.USMTDir $MigrationConstants.USMT.ScanStateExe)).VersionInfo.FileVersion
     }
     $completionInfo | ConvertTo-Json | Out-File $marker -Encoding UTF8
     Write-Log "Capture completion marker written"
@@ -1147,7 +1210,10 @@ function Main {
 
     Show-Banner "USMT MIGRATION - SOURCE PC CAPTURE"
 
-    if ($ExtraData) { $script:TotalSteps = 8 }
+    if ($ExtraData) {
+        $script:State.TotalSteps = 8
+        Set-MigrationUIState -State $script:State
+    }
 
     try {
         # Step 1: Prerequisites
@@ -1165,21 +1231,21 @@ function Main {
         $profiles = Get-MigrationProfiles
 
         # Step 5: Pre-scan inventory
-        Export-PreScanData -OutputPath "$($script:MappedDrive)\"
+        Export-PreScanData -OutputPath "$($script:State.MappedDrive)\"
 
         # Step 6: Extra data (optional)
         if ($ExtraData) {
-            Backup-ExtraData -OutputPath "$($script:MappedDrive)\"
+            Backup-ExtraData -OutputPath "$($script:State.MappedDrive)\"
         }
 
         # Step 7: ScanState
         $exitCode = Invoke-USMTCapture -Profiles $profiles
 
         # Step 8: Finalize
-        $script:CurrentStep = $script:TotalSteps
+        $script:State.CurrentStep = $script:State.TotalSteps
         $pct = 100
-        $elapsed = ((Get-Date) - $script:StartTime).ToString('mm\:ss')
-        $barLen = 30
+        $elapsed = ((Get-Date) - $script:State.StartTime).ToString('mm\:ss')
+        $barLen = $MigrationConstants.UI.ProgressBarWidth
         $bar = ([char]0x2588).ToString() * $barLen
 
         if ($exitCode -eq 0 -or $exitCode -eq 61) {
@@ -1205,7 +1271,7 @@ function Main {
 
         # Copy local log to share
         if (Test-Path $LogFile) {
-            Copy-Item $LogFile -Destination (Join-Path "$($script:MappedDrive)\" "Logs") -Force -ErrorAction SilentlyContinue
+            Copy-Item $LogFile -Destination (Join-Path "$($script:State.MappedDrive)\" "Logs") -Force -ErrorAction SilentlyContinue
         }
 
     } catch {
@@ -1219,12 +1285,12 @@ function Main {
 
 # Disconnect-Share also needs logging
 function Disconnect-Share {
-    if ($script:MappedDrive -and $script:ShareConnected) {
+    if ($script:State.MappedDrive -and $script:State.ShareConnected) {
         try {
-            $result = Invoke-SafeCommand -Command "net" -Arguments @("use", $script:MappedDrive, "/delete", "/yes") -OperationName "Drive disconnect" -SuppressStderr
+            $result = Invoke-SafeCommand -Command "net" -Arguments @("use", $script:State.MappedDrive, "/delete", "/yes") -OperationName "Drive disconnect" -SuppressStderr
             if ($result.Success) {
-                Show-Status "Drive $($script:MappedDrive) disconnected" "OK"
-                Write-Log "Disconnected drive $($script:MappedDrive)"
+                Show-Status "Drive $($script:State.MappedDrive) disconnected" "OK"
+                Write-Log "Disconnected drive $($script:State.MappedDrive)"
             } else {
                 Show-Status "Drive disconnect returned code $($result.ExitCode)" "WARN"
                 Write-Log "Drive disconnect exit code: $($result.ExitCode)" "WARN"
@@ -1237,7 +1303,7 @@ function Disconnect-Share {
 }
 
 # Run
-$totalElapsed = { ((Get-Date) - $script:StartTime).ToString('hh\:mm\:ss') }
+$totalElapsed = { ((Get-Date) - $script:State.StartTime).ToString('hh\:mm\:ss') }
 try {
     Main
 } catch {

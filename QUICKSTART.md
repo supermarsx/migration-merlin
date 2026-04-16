@@ -132,3 +132,27 @@ After capture completes, back on the destination PC:
 - **LoadState errors**: Check `C:\MigrationStore\Logs\loadstate.log`
 - **Access denied**: Run both scripts as Administrator; if the share needs credentials, use `-ShareUsername` and `-SharePassword`
 - **Large profiles**: Ensure the destination drive has enough free space (the script warns if < 20GB)
+
+### Cannot reach `\\DEST-PC\MigrationShare$`
+Run `destination-setup.ps1` on the destination PC first - the share does not exist until then. Confirm SMB ports 445 (and optionally 139) are open on the destination's firewall and that both PCs are in the same subnet or VLAN. If name resolution is unreliable, try the destination's IPv4 address in the UNC path: `\\192.168.1.50\MigrationShare$`.
+
+### USMT not found
+The source script tries to auto-install USMT via the ADK. If that fails (no internet, managed endpoint, etc.), drop a pre-downloaded USMT zip into one of the `USMT.SearchPaths` locations (for example `C:\USMT` or `%TEMP%\USMT-Tools`), or install the ADK manually and pick only the "User State Migration Tool" feature: https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install.
+
+### Capture stuck / slow
+`scanstate.exe` can run for several hours on large profiles. Monitor real-time progress by watching the migration store grow: `Get-ChildItem \\DEST-PC\MigrationShare$\USMT -Recurse | Measure-Object -Property Length -Sum`. The inline spinner also prints a running file count and MB/s figure.
+
+### UAC prompt cancelled
+If the script is launched without elevation it re-launches itself via UAC. Clicking "No" at the prompt leaves no admin child running and the original window exits cleanly - no partial state is written. Re-run the batch file or script to retry.
+
+### Encryption key forgotten
+There is no recovery path. Migration stores created with `-EncryptStore` cannot be decrypted without the original key. Re-capture on the source PC with a fresh key and restore that new store.
+
+### Everyone has access to the migration share
+By default the hidden share is readable by `Everyone` on the local network (with file-system ACLs still guarding the contents). To restrict reads to a single source account, pass `-AllowedSourceUser <DOMAIN\user>` to `destination-setup.ps1`. Firewall scoping via `-AllowedSourceIP` is also available.
+
+### Non-UTF-8 console renders progress bars as `?`
+Progress bars and the braille spinner use Unicode glyphs. On legacy OEM codepages (437, 850) the UI now auto-detects the console encoding and falls back to ASCII glyphs (`#`, `-`, and the classic `|/-\` spinner). No configuration needed - `Get-MigrationUIGlyphs` picks the right set per call.
+
+### `Test-UncPath` rejects my share
+The validator accepts `\\server\share` and `\\server\share$`, optionally followed by sub-paths. Paths with wildcards or any of `\ / : * ? " < > |` in the server or share segment are rejected on purpose. If the share name contains special characters, rename the share on the destination PC.

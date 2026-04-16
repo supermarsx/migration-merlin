@@ -1,20 +1,33 @@
 #Requires -Modules Pester
 <#
 .SYNOPSIS
-    Comprehensive Pester tests for destination-setup.ps1
+    Pester tests for destination-setup.ps1 (post-Phase-2 integration).
 .DESCRIPTION
-    Tests all functions, parameters, code paths, error handling, and UI output
-    for the destination PC migration script. All system-level calls are mocked.
+    UI helpers, Start-TrackedProcess, and USMT discovery/install now live in
+    shared modules (MigrationUI.psm1, USMTTools.psm1). Tests that exercised
+    those functions have been moved to tests/modules/*.Tests.ps1 by
+    executors t1-e2 and t1-e3. This file focuses on:
+      * script-level structural assertions (imports, parameters, cmdlet binding)
+      * destination-specific functions (Test-Prerequisites, New-MigrationShare,
+        Set-MigrationFirewall, Show-ConnectionInfo, Invoke-USMTRestore,
+        Remove-MigrationArtifacts, Watch-MigrationProgress, Initialize-USMT)
+      * the Main routing logic
 #>
 
 BeforeAll {
     Import-Module "$PSScriptRoot\TestHelpers.psm1" -Force
     $ScriptPath = "$PSScriptRoot\..\destination-setup.ps1"
 
-    # Source the script's functions without running Main
-    # We'll dot-source a modified version that doesn't auto-execute
-    # Extract only function definitions using AST to avoid script-level code
-    # that conflicts with Pester's internal container management
+    # Load shared modules the script depends on so that dot-sourced functions
+    # see Show-*, Start-TrackedProcess, Format-SafeParams, Request-Elevation, etc.
+    Import-Module "$PSScriptRoot\..\MigrationConstants.psm1" -Force
+    Import-Module "$PSScriptRoot\..\MigrationUI.psm1" -Force
+    Import-Module "$PSScriptRoot\..\USMTTools.psm1" -Force
+    Import-Module "$PSScriptRoot\..\MigrationState.psm1" -Force
+    . "$PSScriptRoot\..\Invoke-Elevated.ps1"
+    . "$PSScriptRoot\..\MigrationLogging.ps1"
+
+    # Extract function definitions via AST (skips auto-elevation, Main(), etc.)
     $tokens = $null; $parseErrors = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile(
         $ScriptPath, [ref]$tokens, [ref]$parseErrors
@@ -27,18 +40,15 @@ BeforeAll {
     $tempScript = Join-Path $env:TEMP "dest-setup-funcs-$(Get-Random).ps1"
     $funcCode | Set-Content $tempScript -Force
 
-    # Load shared logging module, then dot-source functions
-    . "$PSScriptRoot\..\MigrationLogging.ps1"
     $MigrationFolder = Get-TestMigrationFolder
     $ShareName = "TestMigShare$"
     $LogFile = Initialize-Logging -PrimaryLogFile (Join-Path $MigrationFolder "test.log") -ScriptName "test"
     . $tempScript
-    $script:TotalSteps = 20
-    $script:CurrentStep = 0
-    $script:StartTime = Get-Date
-    $script:USMTDir = $null
-    $script:ADKInstallerUrl = "https://go.microsoft.com/fwlink/?linkid=2271337"
-    $script:ADKInstallerFile = "adksetup.exe"
+
+    # Seed consolidated state (t1-e11) used by the extracted functions and
+    # by Show-Step in the MigrationUI module.
+    $script:State = New-MigrationState -TotalSteps 20
+    Set-MigrationUIState -State $script:State
     $ErrorActionPreference = "Continue"
 }
 
@@ -48,132 +58,32 @@ AfterAll {
 }
 
 # =============================================================================
-# UI HELPER TESTS
+# UI HELPER AVAILABILITY (functions now live in MigrationUI module)
 # =============================================================================
-Describe "Show-Banner" {
-    BeforeEach {
-        $script:CurrentStep = 0
-        $script:StartTime = Get-Date
+Describe "UI helper module wiring" {
+    It "Show-Banner is imported from MigrationUI" {
+        Get-Command Show-Banner -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
-
-    It "Should output the title text" {
-        $output = Show-Banner "TEST TITLE" 6>&1
-        ($output -join "`n") | Should -Match "TEST TITLE"
+    It "Show-Step is imported from MigrationUI" {
+        Get-Command Show-Step -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
-
-    It "Should output separator lines" {
-        $output = Show-Banner "X" 6>&1
-        ($output -join "`n") | Should -Match "={5,}"
+    It "Show-Status is imported from MigrationUI" {
+        Get-Command Show-Status -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
-}
-
-Describe "Show-Step" {
-    BeforeEach {
-        $script:TotalSteps = 20
-        $script:CurrentStep = 0
-        $script:StartTime = Get-Date
+    It "Show-Detail is imported from MigrationUI" {
+        Get-Command Show-Detail -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
-
-    It "Should increment CurrentStep" {
-        $before = $script:CurrentStep
-        Show-Step "Test step" 6>&1 | Out-Null
-        $script:CurrentStep | Should -Be ($before + 1)
+    It "Show-ProgressBar is imported from MigrationUI" {
+        Get-Command Show-ProgressBar -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
-
-    It "Should display the description" {
-        $script:CurrentStep = 0
-        $output = Show-Step "My Description" 6>&1
-        ($output -join "`n") | Should -Match "My Description"
-    }
-
-    It "Should show step number out of total" {
-        $script:CurrentStep = 2
-        $output = Show-Step "StepTest" 6>&1
-        ($output -join "`n") | Should -Match "Step 3/"
+    It "Show-Spinner is imported from MigrationUI" {
+        Get-Command Show-Spinner -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
 }
 
-Describe "Show-Status" {
-    BeforeEach {
-        $script:CurrentStep = 0
-    }
-
-    It "Should display [+] for OK level" {
-        $output = Show-Status "test ok" "OK" 6>&1
-        ($output -join "") | Should -Match "\[\+\]"
-    }
-
-    It "Should display [X] for FAIL level" {
-        $output = Show-Status "test fail" "FAIL" 6>&1
-        ($output -join "") | Should -Match "\[X\]"
-    }
-
-    It "Should display [!] for WARN level" {
-        $output = Show-Status "test warn" "WARN" 6>&1
-        ($output -join "") | Should -Match "\[!\]"
-    }
-
-    It "Should display [~] for WAIT level" {
-        $output = Show-Status "test wait" "WAIT" 6>&1
-        ($output -join "") | Should -Match "\[~\]"
-    }
-
-    It "Should display [i] for INFO level" {
-        $output = Show-Status "test info" "INFO" 6>&1
-        ($output -join "") | Should -Match "\[i\]"
-    }
-
-    It "Should display [.] for unknown level" {
-        $output = Show-Status "test default" "UNKNOWN" 6>&1
-        ($output -join "") | Should -Match "\[\.\]"
-    }
-
-    It "Should include the message text" {
-        $output = Show-Status "hello world" "OK" 6>&1
-        ($output -join "") | Should -Match "hello world"
-    }
-}
-
-Describe "Show-Detail" {
-    BeforeEach {
-        $script:CurrentStep = 0
-    }
-
-    It "Should display label and value" {
-        $output = Show-Detail "MyLabel" "MyValue" 6>&1
-        $joined = $output -join ""
-        $joined | Should -Match "MyLabel"
-        $joined | Should -Match "MyValue"
-    }
-}
-
-Describe "Show-ProgressBar" {
-    BeforeEach {
-        $script:CurrentStep = 0
-    }
-
-    It "Should display percentage" {
-        $output = Show-ProgressBar 50 100 "Test" 6>&1
-        ($output -join "") | Should -Match "50%"
-    }
-
-    It "Should cap at 100%" {
-        $output = Show-ProgressBar 150 100 "Over" 6>&1
-        ($output -join "") | Should -Match "100%"
-    }
-
-    It "Should not crash when Total is 0" {
-        { Show-ProgressBar 0 0 "Zero" 6>&1 } | Should -Not -Throw
-    }
-
-    It "Should include detail text when provided" {
-        $output = Show-ProgressBar 25 100 "Label" "extra info" 6>&1
-        ($output -join "") | Should -Match "extra info"
-    }
-
-    It "Should include label" {
-        $output = Show-ProgressBar 10 100 "DiskCheck" 6>&1
-        ($output -join "") | Should -Match "DiskCheck"
+Describe "USMTTools module wiring" {
+    It "Start-TrackedProcess is imported from USMTTools" {
+        Get-Command Start-TrackedProcess -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
 }
 
@@ -213,124 +123,34 @@ Describe "Write-Log (from MigrationLogging module)" {
     It "Try-CimInstance should be available" {
         Get-Command Try-CimInstance -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
     }
+
+    It "Format-SafeParams should be available" {
+        Get-Command Format-SafeParams -ErrorAction SilentlyContinue | Should -Not -BeNullOrEmpty
+    }
 }
 
 # =============================================================================
-# USMT DETECTION TESTS
+# USMT WRAPPER FUNCTIONS (thin wrappers over USMTTools module)
 # =============================================================================
-Describe "Find-USMT" {
-    BeforeEach {
-        $script:CurrentStep = 0
-    }
-
+Describe "Find-USMT wrapper" {
     Context "When user-supplied USMTPath is valid" {
         It "Should find USMT at user-specified path" {
             $fakeDir = New-FakeUSMTDir -BasePath $MigrationFolder
-            $script:USMTPath = $fakeDir
             $USMTPath = $fakeDir
+            $script:State.USMTDir = $null
             $result = Find-USMT "loadstate.exe"
             $result | Should -BeTrue
-            $script:USMTDir | Should -Be $fakeDir
+            $script:State.USMTDir | Should -Be $fakeDir
         }
     }
 
-    Context "When USMT is in a standard path" {
-        It "Should find USMT in MigrationFolder\USMT-Tools" {
+    Context "When USMT is in MigrationFolder\USMT-Tools" {
+        It "Should find USMT via the additional search path" {
             $fakeDir = New-FakeUSMTDir -BasePath $MigrationFolder
-            $script:USMTPath = ""
             $USMTPath = ""
-            $script:USMTDir = $null
+            $script:State.USMTDir = $null
             $result = Find-USMT "loadstate.exe"
             $result | Should -BeTrue
-        }
-    }
-
-    Context "When USMT is not installed" {
-        It "Should return false when no paths contain USMT" {
-            $emptyFolder = Get-TestMigrationFolder
-            $script:USMTPath = ""
-            $USMTPath = ""
-            $MigrationFolder = $emptyFolder
-            $script:USMTDir = $null
-
-            # Mock Test-Path to return false for all standard USMT locations
-            Mock Test-Path {
-                param($Path)
-                # Only return true for the empty folder itself
-                if ($Path -eq $emptyFolder) { return $true }
-                # Return false for all USMT search paths
-                if ($Path -match 'Windows Kits|USMT|loadstate|scanstate') { return $false }
-                return (Microsoft.PowerShell.Management\Test-Path $Path)
-            }
-
-            $result = Find-USMT "loadstate.exe"
-            $result | Should -BeFalse
-            Remove-TestMigrationFolder $emptyFolder
-        }
-    }
-
-    Context "When exe is directly in base path (no arch subfolder)" {
-        It "Should find USMT" {
-            $noArchDir = Join-Path $MigrationFolder "USMT-Tools"
-            if (-not (Test-Path $noArchDir)) { New-Item $noArchDir -ItemType Directory -Force | Out-Null }
-            Set-Content (Join-Path $noArchDir "loadstate.exe") -Value "FAKE" -Force
-            $script:USMTPath = $noArchDir
-            $USMTPath = $noArchDir
-            $script:USMTDir = $null
-            $result = Find-USMT "loadstate.exe"
-            $result | Should -BeTrue
-        }
-    }
-}
-
-# =============================================================================
-# INSTALL-USMT TESTS
-# =============================================================================
-Describe "Install-USMT" {
-    BeforeAll {
-        $MigrationFolder = Get-TestMigrationFolder
-        $LogFile = Join-Path $MigrationFolder "destination-setup.log"
-
-    }
-
-
-    Context "When all download methods fail" {
-        It "Should return false and show error" {
-            Mock Invoke-WebRequest { throw "Network error" }
-            Mock Start-BitsTransfer { throw "Network error" }
-            Mock Get-Command { return $true } -ParameterFilter { $Name -eq "Start-BitsTransfer" }
-            Mock Test-Path { return $false } -ParameterFilter { $Path -like "*adksetup*" }
-
-            $result = Install-USMT
-            $result | Should -BeFalse
-        }
-    }
-
-    Context "When ADK installer exits with success but USMT not found" {
-        It "Should return false when Find-USMT fails after install" {
-            $downloadDir = Join-Path $env:TEMP "ADK-Download"
-            New-Item $downloadDir -ItemType Directory -Force | Out-Null
-            Set-Content (Join-Path $downloadDir "adksetup.exe") -Value "FAKE"
-
-            Mock Start-BitsTransfer { }
-            Mock Get-Command { return $true } -ParameterFilter { $Name -eq "Start-BitsTransfer" }
-            Mock Start-TrackedProcess {
-                $mockProc = [PSCustomObject]@{ ExitCode = 0; HasExited = $true }
-                $mockProc | Add-Member -MemberType ScriptMethod -Name WaitForExit -Value {} -Force
-                return $mockProc
-            } -ParameterFilter { $FilePath -like "*adksetup*" }
-
-            # Override Find-USMT to always return false (simulating USMT not found after install)
-            Mock Find-USMT { return $false }
-
-            $script:USMTDir = $null
-            $USMTPath = ""
-            $script:USMTPath = ""
-
-            $result = Install-USMT
-            $result | Should -BeFalse
-
-            Remove-Item $downloadDir -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 }
@@ -383,16 +203,14 @@ Describe "Initialize-USMT" {
         $MigrationFolder = Get-TestMigrationFolder
         $LogFile = Join-Path $MigrationFolder "destination-setup.log"
 
-        $script:TotalSteps = 20
-        $script:CurrentStep = 0
-        $script:StartTime = Get-Date
+        $script:State = New-MigrationState -TotalSteps 20
+        Set-MigrationUIState -State $script:State
     }
 
 
     Context "When USMT is already installed" {
         It "Should return true and set USMTDir" {
             $fakeDir = New-FakeUSMTDir -BasePath $MigrationFolder
-            $script:USMTPath = $fakeDir
             $USMTPath = $fakeDir
 
             Mock Get-Item {
@@ -408,11 +226,11 @@ Describe "Initialize-USMT" {
 
     Context "When USMT is not installed and SkipUSMTInstall is set" {
         It "Should return false" {
-            $script:USMTDir = $null
+            $script:State.USMTDir = $null
             $USMTPath = ""
             $SkipUSMTInstall = $true
 
-            # Mock Find-USMT to always return false
+            # Override the script-level wrapper Find-USMT to always return false.
             Mock Find-USMT { return $false }
 
             $result = Initialize-USMT
@@ -426,12 +244,10 @@ Describe "Initialize-USMT" {
 # =============================================================================
 Describe "New-MigrationShare" {
     BeforeEach {
-        $script:TotalSteps = 10
-        $script:CurrentStep = 0
-        $script:StartTime = Get-Date
+        $script:State = New-MigrationState -TotalSteps 10
+        Set-MigrationUIState -State $script:State
     }
     BeforeAll {
-        # Define stub functions if Get-Acl/Set-Acl aren't available, then mock them
         if (-not (Get-Command Get-Acl -ErrorAction SilentlyContinue)) {
             function global:Get-Acl { param($Path) }
             function global:Set-Acl { param($Path, $AclObject) }
@@ -502,9 +318,8 @@ Describe "New-MigrationShare" {
 # =============================================================================
 Describe "Set-MigrationFirewall" {
     BeforeEach {
-        $script:TotalSteps = 10
-        $script:CurrentStep = 0
-        $script:StartTime = Get-Date
+        $script:State = New-MigrationState -TotalSteps 10
+        Set-MigrationUIState -State $script:State
     }
 
 
@@ -589,9 +404,8 @@ Describe "Set-MigrationFirewall" {
 # =============================================================================
 Describe "Show-ConnectionInfo" {
     BeforeEach {
-        $script:TotalSteps = 20
-        $script:CurrentStep = 0
-        $script:StartTime = Get-Date
+        $script:State = New-MigrationState -TotalSteps 20
+        Set-MigrationUIState -State $script:State
     }
 
 
@@ -628,7 +442,6 @@ Describe "Invoke-USMTRestore" {
     BeforeAll {
         $MigrationFolder = Get-TestMigrationFolder
         $LogFile = Join-Path $MigrationFolder "destination-setup.log"
-
     }
 
 
@@ -636,12 +449,9 @@ Describe "Invoke-USMTRestore" {
         BeforeEach {
             New-FakeMigStore -StorePath $MigrationFolder -FileCount 2 -FileSizeKB 50
             $fakeDir = New-FakeUSMTDir -BasePath $MigrationFolder
-            $script:USMTPath = $fakeDir
             $USMTPath = $fakeDir
-            $script:USMTDir = $fakeDir
-            $script:TotalSteps = 20
-            $script:CurrentStep = 0
-            $script:StartTime = Get-Date
+            $script:State = New-MigrationState -TotalSteps 20 -USMTDir $fakeDir
+            Set-MigrationUIState -State $script:State
         }
 
         It "Should call LoadState and return exit code 0 on success" {
@@ -720,12 +530,9 @@ Describe "Invoke-USMTRestore" {
             New-FakeMigStore -StorePath $MigrationFolder
             Set-Content (Join-Path $MigrationFolder "custom-migration.xml") -Value "<xml/>"
             $fakeDir = New-FakeUSMTDir -BasePath $MigrationFolder
-            $script:USMTDir = $fakeDir
-            $script:USMTPath = $fakeDir
             $USMTPath = $fakeDir
-            $script:TotalSteps = 20
-            $script:CurrentStep = 0
-            $script:StartTime = Get-Date
+            $script:State = New-MigrationState -TotalSteps 20 -USMTDir $fakeDir
+            Set-MigrationUIState -State $script:State
 
             Mock Get-Item {
                 [PSCustomObject]@{
@@ -733,7 +540,7 @@ Describe "Invoke-USMTRestore" {
                 }
             }
 
-            $capturedArgs = $null
+            $script:capturedArgs = $null
             Mock Start-TrackedProcess {
                 param($FilePath, $Arguments)
                 $script:capturedArgs = $Arguments
@@ -824,9 +631,7 @@ Describe "Main function routing" {
         $Cleanup = $false
         $RestoreOnly = $true
 
-        # Mock the restore chain
         $fakeDir = New-FakeUSMTDir -BasePath $MigrationFolder
-        $script:USMTPath = $fakeDir
         $USMTPath = $fakeDir
 
         New-FakeMigStore -StorePath $MigrationFolder
@@ -853,17 +658,13 @@ Describe "Watch-MigrationProgress" {
     BeforeAll {
         $MigrationFolder = Get-TestMigrationFolder
         $LogFile = Join-Path $MigrationFolder "destination-setup.log"
-
     }
 
 
     It "Should detect capture-complete.flag and exit" {
-        # Create USMT store with data
         New-FakeMigStore -StorePath $MigrationFolder -FileCount 1 -FileSizeKB 10
-        # Create completion flag
         New-FakeCaptureCompleteFlag -MigrationFolder $MigrationFolder
 
-        # Should not hang — flag exists immediately
         $output = Watch-MigrationProgress 6>&1
         $joined = $output -join "`n"
         $joined | Should -Match "CAPTURE COMPLETE|DATA RECEIVED"
@@ -909,9 +710,14 @@ Describe "Script parameters" {
         $param | Should -Not -BeNullOrEmpty
     }
 
-    It "Should have 8 parameters total" {
+    It "Should have 9 parameters total" {
         $ast = [System.Management.Automation.Language.Parser]::ParseFile($ScriptPath, [ref]$null, [ref]$null)
-        $ast.ParamBlock.Parameters.Count | Should -Be 8
+        $ast.ParamBlock.Parameters.Count | Should -Be 9
+    }
+
+    It "Should declare CmdletBinding with SupportsShouldProcess" {
+        $scriptContent = Get-Content $ScriptPath -Raw
+        $scriptContent | Should -Match '\[CmdletBinding\(SupportsShouldProcess\s*=\s*\$true\)\]'
     }
 }
 
@@ -923,14 +729,61 @@ Describe "Script structure validation" {
         $scriptContent = Get-Content $ScriptPath -Raw
     }
 
-    It "Should require RunAsAdministrator" {
-        $scriptContent | Should -Match 'IsInRole.*Administrator|RunAsAdministrator'
+    It "Should import MigrationConstants module" {
+        $scriptContent | Should -Match 'Import-Module\s+.+MigrationConstants\.psm1'
     }
 
-    It "Should define all expected functions" {
+    It "Should import MigrationUI module" {
+        $scriptContent | Should -Match 'Import-Module\s+.+MigrationUI\.psm1'
+    }
+
+    It "Should import USMTTools module" {
+        $scriptContent | Should -Match 'Import-Module\s+.+USMTTools\.psm1'
+    }
+
+    It "Should dot-source Invoke-Elevated helper" {
+        $scriptContent | Should -Match '\.\s+".*Invoke-Elevated\.ps1"'
+    }
+
+    It "Should call Request-Elevation instead of inline UAC logic" {
+        $scriptContent | Should -Match 'Request-Elevation\s+-ScriptPath\s+\$PSCommandPath'
+        $scriptContent | Should -Not -Match 'Start-Process\s+-FilePath\s+\$psExe'
+    }
+
+    It "Should call Install-USMT with -ExeName 'loadstate.exe'" {
+        $scriptContent | Should -Match "Install-USMT\s+-ExeName\s+'loadstate\.exe'"
+    }
+
+    It "Should initialize UI state via Set-MigrationUIState" {
+        $scriptContent | Should -Match 'Set-MigrationUIState\s+-State'
+    }
+
+    It "Should use Format-SafeParams for parameter logging" {
+        $scriptContent | Should -Match 'Format-SafeParams\s+\$PSBoundParameters'
+    }
+
+    It "Should reference MigrationConstants.Defaults.ShareDescription" {
+        $scriptContent | Should -Match '\$MigrationConstants\.Defaults\.ShareDescription'
+    }
+
+    It "Should reference MigrationConstants.UI.DestinationTotalSteps" {
+        $scriptContent | Should -Match '\$MigrationConstants\.UI\.DestinationTotalSteps'
+    }
+
+    It "Should include SecureString env-var cleanup loop" {
+        $scriptContent | Should -Match 'MIGRATION_MERLIN_SECURE_\*'
+    }
+
+    It "Should NOT declare Show-Banner as a script-local function (moved to MigrationUI)" {
+        $scriptContent | Should -Not -Match '(?m)^function\s+Show-Banner'
+    }
+
+    It "Should NOT declare Start-TrackedProcess as a script-local function (moved to USMTTools)" {
+        $scriptContent | Should -Not -Match '(?m)^function\s+Start-TrackedProcess'
+    }
+
+    It "Should still define destination-specific functions" {
         $expectedFunctions = @(
-            'Show-Banner', 'Show-Step', 'Show-Status', 'Show-Detail',
-            'Show-Spinner', 'Show-ProgressBar',
             'Find-USMT', 'Install-USMT', 'Test-Prerequisites',
             'Initialize-USMT', 'New-MigrationShare', 'Set-MigrationFirewall',
             'Show-ConnectionInfo', 'Watch-MigrationProgress',
@@ -945,11 +798,538 @@ Describe "Script structure validation" {
         $scriptContent | Should -Match '\$ErrorActionPreference\s*=\s*"Stop"'
     }
 
-    It "Should define ADK installer URL" {
-        $scriptContent | Should -Match 'ADKInstallerUrl'
+    It "Should have a try/catch/finally wrapper around Main" {
+        $scriptContent | Should -Match 'try\s*\{[\s\S]*Main[\s\S]*\}\s*catch'
+    }
+}
+
+# =============================================================================
+# BUILD-LOADSTATEARGUMENTS (pure function — added by t1-e10)
+# =============================================================================
+Describe "Build-LoadStateArguments" {
+    BeforeAll {
+        $script:tbUSMT   = Join-Path $env:TEMP "BuildLoadArgs-USMT-$(Get-Random)"
+        $script:tbStore  = Join-Path $env:TEMP "BuildLoadArgs-Store-$(Get-Random)"
+        $script:tbLog    = Join-Path $env:TEMP "BuildLoadArgs-Log-$(Get-Random).log"
+        $script:tbProg   = Join-Path $env:TEMP "BuildLoadArgs-Prog-$(Get-Random).log"
     }
 
-    It "Should have a try/catch/finally wrapper" {
-        $scriptContent | Should -Match 'try\s*\{[\s\S]*Main[\s\S]*\}\s*catch'
+    It "Returns baseline args with just required params" {
+        $a = Build-LoadStateArguments -StorePath $script:tbStore -USMTDir $script:tbUSMT `
+            -LogFile $script:tbLog -ProgressFile $script:tbProg
+        $a[0] | Should -Be "`"$script:tbStore`""
+        ($a -join ' ') | Should -Match 'MigDocs\.xml'
+        ($a -join ' ') | Should -Match 'MigApp\.xml'
+        ($a -join ' ') | Should -Match '/v:5'
+        $logPattern = [regex]::Escape("/l:`"$script:tbLog`"")
+        $progPattern = [regex]::Escape("/progress:`"$script:tbProg`"")
+        ($a -join ' ') | Should -Match $logPattern
+        ($a -join ' ') | Should -Match $progPattern
+    }
+
+    It "Omits /c when -Continue switch is absent" {
+        $a = Build-LoadStateArguments -StorePath $script:tbStore -USMTDir $script:tbUSMT `
+            -LogFile $script:tbLog -ProgressFile $script:tbProg
+        $a | Should -Not -Contain "/c"
+    }
+
+    It "Adds /c when -Continue switch is present" {
+        $a = Build-LoadStateArguments -StorePath $script:tbStore -USMTDir $script:tbUSMT `
+            -LogFile $script:tbLog -ProgressFile $script:tbProg -Continue
+        $a | Should -Contain "/c"
+    }
+
+    It "Adds /lac and /lae when respective switches present" {
+        $a = Build-LoadStateArguments -StorePath $script:tbStore -USMTDir $script:tbUSMT `
+            -LogFile $script:tbLog -ProgressFile $script:tbProg `
+            -LocalAccountCreate -LocalAccountEnable
+        $a | Should -Contain "/lac"
+        $a | Should -Contain "/lae"
+    }
+
+    It "Omits /lac and /lae when switches absent" {
+        $a = Build-LoadStateArguments -StorePath $script:tbStore -USMTDir $script:tbUSMT `
+            -LogFile $script:tbLog -ProgressFile $script:tbProg
+        $a | Should -Not -Contain "/lac"
+        $a | Should -Not -Contain "/lae"
+    }
+
+    It "Adds /i:<custom> once per custom XML path" {
+        $xml1 = "C:\custom\one.xml"
+        $xml2 = "C:\custom\two.xml"
+        $a = Build-LoadStateArguments -StorePath $script:tbStore -USMTDir $script:tbUSMT `
+            -LogFile $script:tbLog -ProgressFile $script:tbProg `
+            -CustomXml @($xml1, $xml2)
+        $joined = $a -join ' '
+        $p1 = [regex]::Escape("/i:`"$xml1`"")
+        $p2 = [regex]::Escape("/i:`"$xml2`"")
+        $joined | Should -Match $p1
+        $joined | Should -Match $p2
+        # Count occurrences of /i: (MigDocs, MigApp, xml1, xml2 = 4)
+        ([regex]::Matches($joined, '/i:')).Count | Should -Be 4
+    }
+
+    It "Quotes paths with spaces in store path" {
+        $spacedStore = "C:\With Space\Migration Store"
+        $a = Build-LoadStateArguments -StorePath $spacedStore -USMTDir $script:tbUSMT `
+            -LogFile $script:tbLog -ProgressFile $script:tbProg
+        $a[0] | Should -Be "`"$spacedStore`""
+    }
+
+    It "Adds /decrypt /key:`"<key>`" when key provided" {
+        $a = Build-LoadStateArguments -StorePath $script:tbStore -USMTDir $script:tbUSMT `
+            -LogFile $script:tbLog -ProgressFile $script:tbProg `
+            -DecryptionKey "s3cr3t"
+        $decryptPattern = [regex]::Escape('/decrypt /key:"s3cr3t"')
+        ($a -join ' ') | Should -Match $decryptPattern
+    }
+
+    It "Omits /decrypt when DecryptionKey is null or empty" {
+        $a = Build-LoadStateArguments -StorePath $script:tbStore -USMTDir $script:tbUSMT `
+            -LogFile $script:tbLog -ProgressFile $script:tbProg
+        ($a -join ' ') | Should -Not -Match '/decrypt'
+        $b = Build-LoadStateArguments -StorePath $script:tbStore -USMTDir $script:tbUSMT `
+            -LogFile $script:tbLog -ProgressFile $script:tbProg `
+            -DecryptionKey ""
+        ($b -join ' ') | Should -Not -Match '/decrypt'
+    }
+
+    It "Honors -Verbosity parameter" {
+        foreach ($v in @(0, 5, 13)) {
+            $a = Build-LoadStateArguments -StorePath $script:tbStore -USMTDir $script:tbUSMT `
+                -LogFile $script:tbLog -ProgressFile $script:tbProg -Verbosity $v
+            $a | Should -Contain "/v:$v"
+        }
+    }
+
+    It "Returns a string[] array" {
+        $a = Build-LoadStateArguments -StorePath $script:tbStore -USMTDir $script:tbUSMT `
+            -LogFile $script:tbLog -ProgressFile $script:tbProg
+        ,$a | Should -BeOfType [System.Array]
+        $a.Count | Should -BeGreaterThan 0
+    }
+}
+
+# =============================================================================
+# CONVERTFROM-LOADSTATEEXITCODE (pure function — added by t1-e10)
+# =============================================================================
+Describe "ConvertFrom-LoadStateExitCode" {
+    It "Exit code 0 returns Success + ShouldContinue=true" {
+        $r = ConvertFrom-LoadStateExitCode -ExitCode 0
+        $r.Code | Should -Be 0
+        $r.Severity | Should -Be 'Success'
+        $r.ShouldContinue | Should -BeTrue
+        $r.Message | Should -Match 'successfully'
+    }
+
+    It "Exit code 61 returns Warning + ShouldContinue=true" {
+        $r = ConvertFrom-LoadStateExitCode -ExitCode 61
+        $r.Code | Should -Be 61
+        $r.Severity | Should -Be 'Warning'
+        $r.ShouldContinue | Should -BeTrue
+        $r.Message | Should -Match 'not restored|non-fatal'
+    }
+
+    It "Exit code 71 returns Error + ShouldContinue=false" {
+        $r = ConvertFrom-LoadStateExitCode -ExitCode 71
+        $r.Code | Should -Be 71
+        $r.Severity | Should -Be 'Error'
+        $r.ShouldContinue | Should -BeFalse
+        $r.Message | Should -Match 'cancelled|corrupt'
+    }
+
+    It "Unknown exit code (e.g. 999) returns Error + ShouldContinue=false" {
+        $r = ConvertFrom-LoadStateExitCode -ExitCode 999
+        $r.Severity | Should -Be 'Error'
+        $r.ShouldContinue | Should -BeFalse
+        $r.Message | Should -Match '999'
+    }
+
+    It "Includes the numeric Code in output" {
+        foreach ($code in @(0, 61, 71, 123, 999)) {
+            $r = ConvertFrom-LoadStateExitCode -ExitCode $code
+            $r.Code | Should -Be $code
+        }
+    }
+
+    It "Returns a hashtable with required keys" {
+        $r = ConvertFrom-LoadStateExitCode -ExitCode 0
+        $r | Should -BeOfType [hashtable]
+        $r.ContainsKey('Code') | Should -BeTrue
+        $r.ContainsKey('Severity') | Should -BeTrue
+        $r.ContainsKey('Message') | Should -BeTrue
+        $r.ContainsKey('ShouldContinue') | Should -BeTrue
+    }
+}
+
+# =============================================================================
+# VALIDATION ATTRIBUTES (t1-e12, Phase 3)
+# -----------------------------------------------------------------------------
+# Verify the ValidateScript attributes added to destination-setup.ps1's
+# param block in Phase 3 are present and enforce the intended rules.
+# =============================================================================
+Describe "Destination param-block validation attributes (t1-e12)" {
+    BeforeAll {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($ScriptPath, [ref]$null, [ref]$null)
+        $script:dstParamsE12 = $ast.ParamBlock.Parameters
+
+        function Get-DstE12Param([string]$Name) {
+            $script:dstParamsE12 |
+                Where-Object { $_.Name.VariablePath.UserPath -eq $Name } |
+                Select-Object -First 1
+        }
+
+        function Get-DstValidateScriptBlock([System.Management.Automation.Language.ParameterAst]$Param) {
+            $attr = $Param.Attributes |
+                Where-Object { $_.TypeName.FullName -eq 'ValidateScript' } |
+                Select-Object -First 1
+            if (-not $attr) { return $null }
+            # Use EndBlock.Extent.Text to unwrap the outer braces so the
+            # re-created scriptblock's body IS the validator (not a nested
+            # scriptblock expression).
+            return [ScriptBlock]::Create($attr.PositionalArguments[0].ScriptBlock.EndBlock.Extent.Text)
+        }
+    }
+
+    It "MigrationFolder has ValidateScript attribute" {
+        $p = Get-DstE12Param 'MigrationFolder'
+        ($p.Attributes.TypeName.FullName -contains 'ValidateScript') | Should -BeTrue
+    }
+
+    It "ShareName has ValidateScript attribute" {
+        $p = Get-DstE12Param 'ShareName'
+        ($p.Attributes.TypeName.FullName -contains 'ValidateScript') | Should -BeTrue
+    }
+
+    It "USMTPath has ValidateScript attribute" {
+        $p = Get-DstE12Param 'USMTPath'
+        ($p.Attributes.TypeName.FullName -contains 'ValidateScript') | Should -BeTrue
+    }
+
+    It "ShareName ValidateScript accepts 'MigrationShare$'" {
+        $sb = Get-DstValidateScriptBlock (Get-DstE12Param 'ShareName')
+        ('MigrationShare$' | ForEach-Object $sb) | Should -BeTrue
+    }
+
+    It "ShareName ValidateScript rejects an empty name" {
+        $sb = Get-DstValidateScriptBlock (Get-DstE12Param 'ShareName')
+        ('' | ForEach-Object $sb) | Should -BeFalse
+    }
+
+    It "ShareName ValidateScript rejects a forward-slash name" {
+        $sb = Get-DstValidateScriptBlock (Get-DstE12Param 'ShareName')
+        ('bad/name' | ForEach-Object $sb) | Should -BeFalse
+    }
+
+    It "ShareName ValidateScript rejects a name over 80 chars" {
+        $sb = Get-DstValidateScriptBlock (Get-DstE12Param 'ShareName')
+        $long = 'a' * 81
+        ($long | ForEach-Object $sb) | Should -BeFalse
+    }
+
+    It "MigrationFolder ValidateScript accepts a drive-letter path" {
+        $sb = Get-DstValidateScriptBlock (Get-DstE12Param 'MigrationFolder')
+        ('D:\Some\Path' | ForEach-Object $sb) | Should -BeTrue
+    }
+
+    It "Destination script imports MigrationValidators module" {
+        $scriptContent = Get-Content $ScriptPath -Raw
+        $scriptContent | Should -Match 'MigrationValidators\.psm1'
+    }
+
+    It "Destination script keeps exactly 9 top-level params (t1-e13 added AllowedSourceUser)" {
+        $script:dstParamsE12.Count | Should -Be 9
+    }
+}
+
+# =============================================================================
+# T1-E13 — WhatIf / ShouldProcess wiring + AllowedSourceUser parameter
+# -----------------------------------------------------------------------------
+# Verifies that destructive operations respect $WhatIfPreference and that the
+# new -AllowedSourceUser parameter branches Grant-SmbShareAccess away from
+# 'Everyone' when provided.
+# =============================================================================
+Describe "T1-e13 -AllowedSourceUser parameter" {
+    BeforeAll {
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($ScriptPath, [ref]$null, [ref]$null)
+        $script:e13Params = $ast.ParamBlock.Parameters
+
+        function Get-E13Param([string]$Name) {
+            $script:e13Params |
+                Where-Object { $_.Name.VariablePath.UserPath -eq $Name } |
+                Select-Object -First 1
+        }
+
+        function Get-E13ValidateScriptBlock([System.Management.Automation.Language.ParameterAst]$Param) {
+            $attr = $Param.Attributes |
+                Where-Object { $_.TypeName.FullName -eq 'ValidateScript' } |
+                Select-Object -First 1
+            if (-not $attr) { return $null }
+            return [ScriptBlock]::Create($attr.PositionalArguments[0].ScriptBlock.EndBlock.Extent.Text)
+        }
+    }
+
+    It "Declares -AllowedSourceUser parameter" {
+        $p = Get-E13Param 'AllowedSourceUser'
+        $p | Should -Not -BeNullOrEmpty
+    }
+
+    It "AllowedSourceUser has a ValidateScript attribute" {
+        $p = Get-E13Param 'AllowedSourceUser'
+        ($p.Attributes.TypeName.FullName -contains 'ValidateScript') | Should -BeTrue
+    }
+
+    It "AllowedSourceUser validator accepts an empty string (omitted)" {
+        $sb = Get-E13ValidateScriptBlock (Get-E13Param 'AllowedSourceUser')
+        ('' | ForEach-Object $sb) | Should -BeTrue
+    }
+
+    It "AllowedSourceUser validator accepts DOMAIN\user" {
+        $sb = Get-E13ValidateScriptBlock (Get-E13Param 'AllowedSourceUser')
+        ('CORP\jdoe' | ForEach-Object $sb) | Should -BeTrue
+    }
+
+    It "AllowedSourceUser validator accepts machine account with trailing $" {
+        $sb = Get-E13ValidateScriptBlock (Get-E13Param 'AllowedSourceUser')
+        ('SRV-01$' | ForEach-Object $sb) | Should -BeTrue
+    }
+
+    It "AllowedSourceUser validator rejects whitespace-only input" {
+        $sb = Get-E13ValidateScriptBlock (Get-E13Param 'AllowedSourceUser')
+        ('   ' | ForEach-Object $sb) | Should -BeFalse
+    }
+
+    It "AllowedSourceUser validator rejects embedded spaces" {
+        $sb = Get-E13ValidateScriptBlock (Get-E13Param 'AllowedSourceUser')
+        ('bad user' | ForEach-Object $sb) | Should -BeFalse
+    }
+
+    It "AllowedSourceUser validator rejects a forward-slash name" {
+        $sb = Get-E13ValidateScriptBlock (Get-E13Param 'AllowedSourceUser')
+        ('bad/name' | ForEach-Object $sb) | Should -BeFalse
+    }
+}
+
+Describe "T1-e13 New-MigrationShare -AllowedSourceUser behavior" {
+    BeforeEach {
+        $script:State = New-MigrationState -TotalSteps 10
+        Set-MigrationUIState -State $script:State
+    }
+
+    It "Grants 'Everyone' when -AllowedSourceUser omitted" {
+        $AllowedSourceUser = ""
+        Mock Get-Acl { return New-Object System.Security.AccessControl.DirectorySecurity }
+        Mock Set-Acl { }
+        Mock Get-SmbShare { return $null }
+        Mock New-SmbShare { }
+        Mock Grant-SmbShareAccess { } -Verifiable -ParameterFilter {
+            $AccountName -eq "Everyone"
+        }
+
+        New-MigrationShare
+
+        Should -InvokeVerifiable
+    }
+
+    It "Emits a WARN status when -AllowedSourceUser omitted (Everyone fallback)" {
+        $AllowedSourceUser = ""
+        Mock Get-Acl { return New-Object System.Security.AccessControl.DirectorySecurity }
+        Mock Set-Acl { }
+        Mock Get-SmbShare { return $null }
+        Mock New-SmbShare { }
+        Mock Grant-SmbShareAccess { }
+
+        $output = New-MigrationShare 6>&1
+        $joined = $output -join "`n"
+        $joined | Should -Match 'AllowedSourceUser|Everyone'
+    }
+
+    It "Grants the specified account when -AllowedSourceUser provided" {
+        $AllowedSourceUser = "CORP\migrator"
+        Mock Get-Acl { return New-Object System.Security.AccessControl.DirectorySecurity }
+        Mock Set-Acl { }
+        Mock Get-SmbShare { return $null }
+        Mock New-SmbShare { }
+        Mock Grant-SmbShareAccess { } -Verifiable -ParameterFilter {
+            $AccountName -eq "CORP\migrator" -and $AccessRight -eq "Full"
+        }
+
+        New-MigrationShare
+
+        Should -InvokeVerifiable
+    }
+
+    It "Does NOT grant 'Everyone' when -AllowedSourceUser provided" {
+        $AllowedSourceUser = "CORP\migrator"
+        Mock Get-Acl { return New-Object System.Security.AccessControl.DirectorySecurity }
+        Mock Set-Acl { }
+        Mock Get-SmbShare { return $null }
+        Mock New-SmbShare { }
+        Mock Grant-SmbShareAccess { }
+
+        New-MigrationShare
+
+        Should -Invoke Grant-SmbShareAccess -Times 0 -ParameterFilter {
+            $AccountName -eq "Everyone"
+        }
+    }
+}
+
+Describe "T1-e13 ShouldProcess / -WhatIf wiring" {
+    BeforeEach {
+        $script:State = New-MigrationState -TotalSteps 10
+        Set-MigrationUIState -State $script:State
+    }
+
+    Context "New-MigrationShare" {
+        It "Does NOT call New-SmbShare when -WhatIf is passed" {
+            Mock Get-Acl { return New-Object System.Security.AccessControl.DirectorySecurity }
+            Mock Set-Acl { }
+            Mock Get-SmbShare { return $null }
+            Mock New-SmbShare { } -Verifiable
+            Mock Grant-SmbShareAccess { }
+
+            New-MigrationShare -WhatIf
+
+            Should -Invoke New-SmbShare -Times 0
+        }
+
+        It "Does NOT call Grant-SmbShareAccess when -WhatIf is passed" {
+            Mock Get-Acl { return New-Object System.Security.AccessControl.DirectorySecurity }
+            Mock Set-Acl { }
+            Mock Get-SmbShare { return $null }
+            Mock New-SmbShare { }
+            Mock Grant-SmbShareAccess { }
+
+            New-MigrationShare -WhatIf
+
+            Should -Invoke Grant-SmbShareAccess -Times 0
+        }
+
+        It "Does NOT call Remove-SmbShare (pre-existing share) when -WhatIf is passed" {
+            Mock Get-Acl { return New-Object System.Security.AccessControl.DirectorySecurity }
+            Mock Set-Acl { }
+            Mock Get-SmbShare { return [PSCustomObject]@{ Name = $ShareName } }
+            Mock Remove-SmbShare { }
+            Mock New-SmbShare { }
+            Mock Grant-SmbShareAccess { }
+
+            New-MigrationShare -WhatIf
+
+            Should -Invoke Remove-SmbShare -Times 0
+        }
+
+        It "Calls New-SmbShare when -WhatIf is NOT passed" {
+            Mock Get-Acl { return New-Object System.Security.AccessControl.DirectorySecurity }
+            Mock Set-Acl { }
+            Mock Get-SmbShare { return $null }
+            Mock New-SmbShare { }
+            Mock Grant-SmbShareAccess { }
+
+            New-MigrationShare
+
+            Should -Invoke New-SmbShare -Times 1
+        }
+    }
+
+    Context "Set-MigrationFirewall" {
+        It "Does NOT call New-NetFirewallRule when -WhatIf is passed" {
+            Mock Get-NetFirewallRule { return $null }
+            Mock Set-NetFirewallRule { }
+            Mock Remove-NetFirewallRule { }
+            Mock New-NetFirewallRule { }
+            Mock Get-SmbServerConfiguration { [PSCustomObject]@{ EnableSMB2Protocol = $true } }
+
+            Set-MigrationFirewall -WhatIf
+
+            Should -Invoke New-NetFirewallRule -Times 0
+        }
+
+        It "Does NOT call Remove-NetFirewallRule (pre-existing) when -WhatIf is passed" {
+            Mock Get-NetFirewallRule {
+                param($DisplayName, $DisplayGroup)
+                if ($DisplayName -eq "USMT-Migration-Inbound") {
+                    return [PSCustomObject]@{ DisplayName = "USMT-Migration-Inbound" }
+                }
+                return $null
+            }
+            Mock Set-NetFirewallRule { }
+            Mock Remove-NetFirewallRule { }
+            Mock New-NetFirewallRule { }
+            Mock Get-SmbServerConfiguration { [PSCustomObject]@{ EnableSMB2Protocol = $true } }
+
+            Set-MigrationFirewall -WhatIf
+
+            Should -Invoke Remove-NetFirewallRule -Times 0
+        }
+
+        It "Calls New-NetFirewallRule when -WhatIf is NOT passed" {
+            Mock Get-NetFirewallRule { return $null }
+            Mock Set-NetFirewallRule { }
+            Mock New-NetFirewallRule { }
+            Mock Get-SmbServerConfiguration { [PSCustomObject]@{ EnableSMB2Protocol = $true } }
+
+            Set-MigrationFirewall
+
+            Should -Invoke New-NetFirewallRule -Times 1
+        }
+    }
+
+    Context "Remove-MigrationArtifacts" {
+        It "Does NOT call Remove-SmbShare when -WhatIf is passed" {
+            Mock Read-Host { return 'Y' }
+            Mock Get-SmbShare { [PSCustomObject]@{ Name = $ShareName } }
+            Mock Remove-SmbShare { }
+            Mock Get-NetFirewallRule { return $null }
+            Mock Remove-Item { }
+
+            Remove-MigrationArtifacts -WhatIf
+
+            Should -Invoke Remove-SmbShare -Times 0
+        }
+
+        It "Does NOT call Remove-NetFirewallRule when -WhatIf is passed" {
+            Mock Read-Host { return 'Y' }
+            Mock Get-SmbShare { return $null }
+            Mock Get-NetFirewallRule {
+                [PSCustomObject]@{ DisplayName = "USMT-Migration-Inbound" }
+            }
+            Mock Remove-NetFirewallRule { }
+            Mock Remove-Item { }
+
+            Remove-MigrationArtifacts -WhatIf
+
+            Should -Invoke Remove-NetFirewallRule -Times 0
+        }
+
+        It "Calls Remove-SmbShare when -WhatIf is NOT passed" {
+            Mock Read-Host { return 'Y' }
+            Mock Get-SmbShare { [PSCustomObject]@{ Name = $ShareName } }
+            Mock Remove-SmbShare { }
+            Mock Get-NetFirewallRule { return $null }
+            Mock Remove-Item { }
+
+            Remove-MigrationArtifacts
+
+            Should -Invoke Remove-SmbShare -Times 1
+        }
+    }
+
+    Context "SupportsShouldProcess declarations" {
+        BeforeAll {
+            $script:e13Content = Get-Content $ScriptPath -Raw
+        }
+
+        It "New-MigrationShare declares SupportsShouldProcess" {
+            $script:e13Content | Should -Match '(?s)function\s+New-MigrationShare\s*\{\s*\[CmdletBinding\(SupportsShouldProcess\s*=\s*\$true\)\]'
+        }
+
+        It "Set-MigrationFirewall declares SupportsShouldProcess" {
+            $script:e13Content | Should -Match '(?s)function\s+Set-MigrationFirewall\s*\{\s*\[CmdletBinding\(SupportsShouldProcess\s*=\s*\$true\)\]'
+        }
+
+        It "Remove-MigrationArtifacts declares SupportsShouldProcess" {
+            $script:e13Content | Should -Match '(?s)function\s+Remove-MigrationArtifacts\s*\{\s*\[CmdletBinding\(SupportsShouldProcess\s*=\s*\$true\)\]'
+        }
     }
 }

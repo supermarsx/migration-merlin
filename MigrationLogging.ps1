@@ -144,6 +144,117 @@ function Write-Log {
 }
 
 # ============================================================================
+# FORMAT-SAFEPARAMS (scrub secrets before logging parameter dumps)
+# ============================================================================
+# Callers frequently log $PSBoundParameters at script start for diagnostic
+# purposes, e.g.:
+#     Write-Log "Script started with parameters: $($PSBoundParameters |
+#         ConvertTo-Json -Compress -Depth 1)"
+# That pattern leaks SharePassword, EncryptionKey, API tokens, etc. into the
+# on-disk log. Format-SafeParams produces a redacted representation so the log
+# stays safe. It does NOT mutate the caller's dictionary.
+#
+# Usage:
+#     Write-Log "Started with params: $(Format-SafeParams $PSBoundParameters)"
+#     $hash = Format-SafeParams $params -AsObject
+# ============================================================================
+function Format-SafeParamsValue {
+    # Internal helper for Format-SafeParams. Recursively masks a single value.
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$true)] $Value,
+        [Parameter(Mandatory=$true)] [int]$CurrentDepth,
+        [Parameter(Mandatory=$true)] [int]$MaxDepth,
+        [Parameter(Mandatory=$true)] [string]$KeyRegex
+    )
+
+    if ($null -eq $Value) { return $null }
+
+    # SecureString — always mask regardless of key name.
+    if ($Value -is [System.Security.SecureString]) {
+        return '***'
+    }
+    # PSCredential — always mask regardless of key name.
+    if ($Value -is [System.Management.Automation.PSCredential]) {
+        return '***(PSCredential)***'
+    }
+
+    # Recurse into nested dictionaries.
+    if ($Value -is [System.Collections.IDictionary]) {
+        if ($CurrentDepth -ge $MaxDepth) { return '***(nested)***' }
+        $nested = @{}
+        foreach ($k in $Value.Keys) {
+            $v = $Value[$k]
+            if ($k -match $KeyRegex) {
+                $nested[$k] = '***'
+            } else {
+                $nested[$k] = Format-SafeParamsValue -Value $v -CurrentDepth ($CurrentDepth + 1) -MaxDepth $MaxDepth -KeyRegex $KeyRegex
+            }
+        }
+        return ,$nested
+    }
+
+    # Recurse into PSCustomObjects by reading their NoteProperty set.
+    if ($Value -is [psobject] -and $Value -isnot [string] -and $Value -isnot [valuetype]) {
+        $typeName = $Value.GetType().FullName
+        if ($typeName -eq 'System.Management.Automation.PSCustomObject') {
+            if ($CurrentDepth -ge $MaxDepth) { return '***(nested)***' }
+            $nested = @{}
+            foreach ($p in $Value.PSObject.Properties) {
+                if ($p.Name -match $KeyRegex) {
+                    $nested[$p.Name] = '***'
+                } else {
+                    $nested[$p.Name] = Format-SafeParamsValue -Value $p.Value -CurrentDepth ($CurrentDepth + 1) -MaxDepth $MaxDepth -KeyRegex $KeyRegex
+                }
+            }
+            return ,$nested
+        }
+    }
+
+    return $Value
+}
+
+function Format-SafeParams {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory=$true, ValueFromPipeline=$true)]
+        [System.Collections.IDictionary]$Parameters,
+
+        [Parameter()]
+        [string[]]$SensitivePatterns = @('Password','Secret','Token','Key','Credential','Passphrase','ApiKey'),
+
+        [Parameter()]
+        [int]$Depth = 2,
+
+        [Parameter()]
+        [switch]$AsObject
+    )
+
+    process {
+        # Build a case-insensitive regex that matches any of the sensitive
+        # patterns as a substring of the key name.
+        $escaped = $SensitivePatterns | ForEach-Object { [regex]::Escape($_) }
+        $regex = '(?i)(' + ($escaped -join '|') + ')'
+
+        $clone = @{}
+        foreach ($key in $Parameters.Keys) {
+            $val = $Parameters[$key]
+            if ($key -match $regex) {
+                $clone[$key] = '***'
+            } else {
+                $clone[$key] = Format-SafeParamsValue -Value $val -CurrentDepth 1 -MaxDepth $Depth -KeyRegex $regex
+            }
+        }
+
+        if ($AsObject) {
+            return ,$clone
+        }
+        return ($clone | ConvertTo-Json -Compress -Depth $Depth)
+    }
+}
+
+# ============================================================================
 # SAFE-EXIT (always logs the reason)
 # ============================================================================
 function Safe-Exit {
