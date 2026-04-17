@@ -1,5 +1,5 @@
 @{
-    # Migration-Merlin PSScriptAnalyzer configuration.
+    # MigrationMerlin PSScriptAnalyzer configuration.
     # The CI `lint` job fails only on Error-severity findings. Warnings are
     # reported for awareness but do not block the pipeline. Adjust excluded
     # rules here when a check produces noisy false-positives that are
@@ -26,6 +26,14 @@
         # are required by the underlying tool's contract.
         'PSAvoidUsingPlainTextForPassword'
         'PSAvoidUsingUsernameAndPasswordParams'
+
+        # ConvertTo-SecureString -AsPlainText is required in two contexts:
+        #   1. MigrationMerlin.ps1 converts user input (prompted password,
+        #      CLI parameter, DPAPI-hand-off env var) into a SecureString.
+        #   2. Pester test fixtures MUST create SecureStrings from literal
+        #      strings to exercise the SecureString code paths.
+        # Both uses are intentional; excluding the rule avoids a false Error.
+        'PSAvoidUsingConvertToSecureStringWithPlainText'
     )
 
     Rules = @{

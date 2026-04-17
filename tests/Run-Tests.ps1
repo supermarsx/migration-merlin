@@ -51,7 +51,12 @@ Write-Host ""
 
 $config = New-PesterConfiguration
 $config.Run.Path = $testFiles.FullName
-$config.Run.Exit = $CI.IsPresent
+# PassThru is required in Pester 5 for Invoke-Pester to return the result
+# object; without it, $result is $null and the banner below prints empty
+# counts. Run.Exit is intentionally left $false -- we handle the exit
+# code ourselves below so we always get to print the summary.
+$config.Run.PassThru = $true
+$config.Run.Exit = $false
 $config.Output.Verbosity = $Output
 
 if ($CI) {

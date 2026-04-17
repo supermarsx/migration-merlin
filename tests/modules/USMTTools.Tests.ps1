@@ -37,13 +37,19 @@ Describe 'Find-USMT' {
 
     It 'returns $null when no search location contains USMT' {
         # Point at an empty search path and only empty additional paths.
+        # Mock Test-Path within module scope so the default search paths
+        # (including a possibly-extracted repo-root USMT-Tools) all report
+        # "not found" -- we're exercising the fan-out logic, not the FS.
         $emptyBase = Join-Path $script:TestRoot 'Empty'
         New-Item -Path $emptyBase -ItemType Directory -Force | Out-Null
 
-        # Mock Test-Path so every built-in search path reports not-found.
-        # We still want our mocked $emptyBase to exist but contain nothing.
-        $result = Find-USMT -ExeName 'scanstate.exe' -USMTPathOverride $emptyBase -AdditionalSearchPaths @($emptyBase)
-        $result | Should -Be $null
+        InModuleScope USMTTools -Parameters @{ EmptyBase = $emptyBase } {
+            param($EmptyBase)
+            Mock Test-Path { $false } -ParameterFilter { $Path -like '*scanstate.exe' -or $Path -like '*loadstate.exe' }
+
+            $result = Find-USMT -ExeName 'scanstate.exe' -USMTPathOverride $EmptyBase -AdditionalSearchPaths @($EmptyBase)
+            $result | Should -Be $null
+        }
     }
 
     It 'honors -USMTPathOverride when the override contains the exe' {
@@ -58,9 +64,16 @@ Describe 'Find-USMT' {
     It 'returns $null when the override path lacks the exe' {
         $override = Join-Path $script:TestRoot 'Custom'
         New-Item -Path $override -ItemType Directory -Force | Out-Null
-        # No exe inside -- and no AdditionalSearchPaths either.
-        $result = Find-USMT -ExeName 'scanstate.exe' -USMTPathOverride $override -AdditionalSearchPaths @((Join-Path $script:TestRoot 'Nope'))
-        $result | Should -Be $null
+
+        InModuleScope USMTTools -Parameters @{
+            Override = $override; Nope = (Join-Path $script:TestRoot 'Nope')
+        } {
+            param($Override, $Nope)
+            Mock Test-Path { $false } -ParameterFilter { $Path -like '*scanstate.exe' -or $Path -like '*loadstate.exe' }
+
+            $result = Find-USMT -ExeName 'scanstate.exe' -USMTPathOverride $Override -AdditionalSearchPaths @($Nope)
+            $result | Should -Be $null
+        }
     }
 
     It 'supports a custom -ExeName (loadstate.exe)' {
@@ -89,27 +102,20 @@ Describe 'Expand-BundledUSMT' {
     }
 
     It 'returns $null when no zip is found in any search location' {
-        # Ensure no file named user-state-migration-tool.zip is around.
-        # Use an isolated dir as the only AdditionalZipSearchPaths entry.
+        # Stub Test-Path within the module's scope so every probe for
+        # user-state-migration-tool.zip reports "not found", regardless of
+        # whether a real bundled zip exists at the repo root, in TEMP, or
+        # anywhere else on the runner. We're exercising the module's fan-out
+        # logic, not the filesystem.
         $empty = Join-Path $script:TestRoot 'NoZipHere'
         New-Item -Path $empty -ItemType Directory -Force | Out-Null
 
         InModuleScope USMTTools -Parameters @{ Empty = $empty } {
             param($Empty)
-            # Force _Get-UsmtArchitecture-independent behavior - just check no zip found.
-            # We override PSScriptRoot-derived lookups via TEMP path: ensure TEMP has no zip either.
-            $tempZip = Join-Path $env:TEMP 'user-state-migration-tool.zip'
-            $backup = $null
-            if (Test-Path $tempZip) {
-                $backup = "$tempZip.bak-$([guid]::NewGuid().ToString('N'))"
-                Rename-Item $tempZip $backup
-            }
-            try {
-                $result = Expand-BundledUSMT -AdditionalZipSearchPaths @($Empty)
-                $result | Should -Be $null
-            } finally {
-                if ($backup -and (Test-Path $backup)) { Rename-Item $backup $tempZip }
-            }
+            Mock Test-Path { $false } -ParameterFilter { $Path -like '*user-state-migration-tool.zip' }
+
+            $result = Expand-BundledUSMT -AdditionalZipSearchPaths @($Empty)
+            $result | Should -Be $null
         }
     }
 

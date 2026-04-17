@@ -31,7 +31,7 @@
 #     secret named `RELEASE_TOKEN` and swap it into the `token:` field
 #     of `actions/checkout` in the `release` job.
 
-name: ci
+name: CI
 
 on:
   push:
@@ -141,9 +141,13 @@ jobs:
         run: .\tests\Run-Tests.ps1 -CI -Output Normal
 
   build:
+    # `format` is intentionally NOT in `needs:`: it runs in parallel with
+    # the other gates but is advisory (continue-on-error) and would block
+    # the chain while the codebase still has un-reformatted files. The
+    # hard gates for release are `lint` and `test` only.
     name: Build
     runs-on: windows-latest
-    needs: [lint, format, test]
+    needs: [lint, test]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     outputs:
       version: ${{ steps.ver.outputs.version }}
