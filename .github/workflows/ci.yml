@@ -4,17 +4,22 @@
 # parallel: `lint`, `format`, `test`.
 #
 # On push to `main` (and only on main), success of the gates triggers
-# a single `release` job that bumps the `version` file, builds, packages,
-# tags, pushes, and publishes a GitHub release.
+# three more jobs that run in sequence: `build` -> `package` -> `release`.
 #
 # Design notes:
 #   * Runner is `windows-latest` for authenticity -- this repo is a
 #     Windows USMT wrapper and its Pester tests expect a Windows host.
 #   * PowerShell 7 (`pwsh`) is used everywhere; it ships with the runner.
 #   * Only one Node-based action is used: `actions/checkout@v5` (Node 24).
-#     Module installation happens in-line via `Install-Module` each run;
+#     Module installs happen in-line via `Install-Module` each run;
 #     release publishing uses the runner's pre-installed `gh` CLI via
 #     shell steps rather than a Node-based release action.
+#     To avoid Node-20 upload/download-artifact actions, `build` and
+#     `package` do NOT persist artifacts between jobs. They're cheap
+#     verification gates; each downstream job re-runs the cheap build
+#     and package steps locally given the frozen version string from
+#     the `build` job's output. Only the `release` job actually
+#     commits, tags, pushes, and creates the public release.
 #   * The `format` job is advisory (continue-on-error) on purpose: we
 #     have not enforced Invoke-Formatter output on the existing tree
 #     yet. Flip to `false` once the codebase has been formatted once.
@@ -22,7 +27,7 @@
 #     it generates does NOT recursively trigger another release.
 #   * Tags are annotated (`git tag -a`) and pushed explicitly. The
 #     default `GITHUB_TOKEN` is sufficient unless branch-protection on
-#     `main` blocks github-actions[bot] pushes; in that case, add a PAT
+#     `main` blocks github-actions[bot] pushes; in that case add a PAT
 #     secret named `RELEASE_TOKEN` and swap it into the `token:` field
 #     of `actions/checkout` in the `release` job.
 
@@ -135,11 +140,56 @@ jobs:
         shell: pwsh
         run: .\tests\Run-Tests.ps1 -CI -Output Normal
 
-  release:
-    name: Build, package, release
+  build:
+    name: Build
     runs-on: windows-latest
     needs: [lint, format, test]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Bump version (freeze for the run)
+        id: ver
+        shell: pwsh
+        run: |
+          $next = .\.github\scripts\Get-NextVersion.ps1 -Write
+          "version=$next" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Next version: $next"
+
+      - name: Build (syntax-parse + stage production payload)
+        shell: pwsh
+        run: .\.github\scripts\Invoke-Build.ps1 -OutputDir dist
+
+  package:
+    name: Package
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Apply frozen version
+        shell: pwsh
+        run: Set-Content -Path version -Value "${{ needs.build.outputs.version }}" -NoNewline
+
+      - name: Build (re-run to produce dist/)
+        shell: pwsh
+        run: .\.github\scripts\Invoke-Build.ps1 -OutputDir dist
+
+      - name: Package (zip dist into pkg/MigrationMerlin-<version>.zip)
+        shell: pwsh
+        run: |
+          .\.github\scripts\Invoke-Package.ps1 `
+            -InputDir dist `
+            -OutputDir pkg `
+            -Version "${{ needs.build.outputs.version }}"
+          Get-ChildItem pkg
+
+  release:
+    name: Release
+    runs-on: windows-latest
+    needs: [build, package]
     permissions:
       contents: write
     steps:
@@ -148,31 +198,26 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Bump version
-        id: ver
+      - name: Apply frozen version
         shell: pwsh
-        run: |
-          $next = .\.github\scripts\Get-NextVersion.ps1 -Write
-          "version=$next" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          Write-Host "Next version: $next"
+        run: Set-Content -Path version -Value "${{ needs.build.outputs.version }}" -NoNewline
 
-      - name: Build
+      - name: Build (re-run to produce dist/)
         shell: pwsh
         run: .\.github\scripts\Invoke-Build.ps1 -OutputDir dist
 
-      - name: Package
+      - name: Package (re-run to produce pkg/MigrationMerlin-<version>.zip)
         shell: pwsh
         run: |
           .\.github\scripts\Invoke-Package.ps1 `
             -InputDir dist `
             -OutputDir pkg `
-            -Version "${{ steps.ver.outputs.version }}"
-          Get-ChildItem pkg
+            -Version "${{ needs.build.outputs.version }}"
 
-      - name: Commit version bump, tag, and push
+      - name: Commit version bump, annotated tag, push
         shell: pwsh
         run: |
-          $v = "${{ steps.ver.outputs.version }}"
+          $v = "${{ needs.build.outputs.version }}"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add version
@@ -186,8 +231,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $v = "${{ steps.ver.outputs.version }}"
-          $zip = (Get-ChildItem pkg\*.zip | Select-Object -First 1).FullName
+          $v = "${{ needs.build.outputs.version }}"
+          $zip = (Get-ChildItem pkg\MigrationMerlin-*.zip | Select-Object -First 1).FullName
           if (-not $zip) { throw "No zip found in pkg/" }
 
           $notesPath = Join-Path $env:RUNNER_TEMP "release-notes.md"
