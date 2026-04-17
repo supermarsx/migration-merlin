@@ -88,7 +88,7 @@ if (Test-Path -LiteralPath $absOutput) {
 }
 New-Item -ItemType Directory -Path $absOutput -Force | Out-Null
 
-$stageDirs = @('modules', 'scripts', 'wrappers', 'config')
+$stageDirs = @('modules', 'scripts', 'wrappers', 'config', 'assets')
 foreach ($dir in $stageDirs) {
     $src = Join-Path $RepoRoot $dir
     if (Test-Path $src) {

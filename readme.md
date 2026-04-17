@@ -1,4 +1,4 @@
-<img width="300" height="300" alt="Migration Merlin Logotype" src="https://github.com/user-attachments/assets/a73cdd48-4ffd-49b7-97d5-665d88393c51" />
+<img width="300" height="300" alt="Migration Merlin Logotype" src="assets/migration-merlin-logo.png" />
 
 # MigrationMerlin
 
