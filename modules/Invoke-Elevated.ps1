@@ -78,7 +78,7 @@ function ConvertTo-ElevationArgumentString {
 
         [string]$EnvVarPrefix = 'MIGRATION_MERLIN_',
 
-        [ValidateSet('Process','User','Machine')]
+        [ValidateSet('Process', 'User', 'Machine')]
         [string]$EnvScope = 'Process'
     )
 
@@ -104,7 +104,8 @@ function ConvertTo-ElevationArgumentString {
                 $encrypted = ConvertFrom-SecureString -SecureString $value
                 [System.Environment]::SetEnvironmentVariable($envName, $encrypted, $EnvScope)
                 $parts.Add("-${name}FromEnv") | Out-Null
-            } catch {
+            }
+            catch {
                 Write-Warning "Failed to marshal SecureString parameter '$name': $_"
             }
             continue
@@ -119,7 +120,8 @@ function ConvertTo-ElevationArgumentString {
                 $encrypted = ConvertFrom-SecureString -SecureString $value.Password
                 [System.Environment]::SetEnvironmentVariable($passEnv, $encrypted, $EnvScope)
                 $parts.Add("-${name}FromEnv") | Out-Null
-            } catch {
+            }
+            catch {
                 Write-Warning "Failed to marshal PSCredential parameter '$name': $_"
             }
             continue
@@ -132,8 +134,9 @@ function ConvertTo-ElevationArgumentString {
                 if ($null -eq $item) { continue }
                 if ($item -is [bool] -or $item -is [int] -or $item -is [long] -or $item -is [double] -or $item -is [decimal]) {
                     $items += "$item"
-                } else {
-                    $escaped = ($item.ToString()) -replace '"','`"'
+                }
+                else {
+                    $escaped = ($item.ToString()) -replace '"', '`"'
                     $items += '"' + $escaped + '"'
                 }
             }
@@ -154,7 +157,7 @@ function ConvertTo-ElevationArgumentString {
         }
 
         # --- String / fallback: ToString with quote escape ---
-        $escaped = ($value.ToString()) -replace '"','`"'
+        $escaped = ($value.ToString()) -replace '"', '`"'
         $parts.Add('-' + $name + ' "' + $escaped + '"') | Out-Null
     }
 
@@ -214,7 +217,7 @@ function Request-Elevation {
     if (-not $ScriptPath) {
         Write-Host "ERROR: Cannot determine script path for elevation." -ForegroundColor Red
         Write-Host "Run this script from a .ps1 file, or use 'Run as Administrator'." -ForegroundColor Yellow
-        if (-not $Silent) { pause }
+        if (-not $Silent) { Pause }
         Exit-Elevation -ExitCode 1
         return
     }
@@ -247,12 +250,13 @@ function Request-Elevation {
     try {
         $proc = Start-Process -FilePath $psExe -ArgumentList $cmd -Verb RunAs -Wait -PassThru
         if ($proc) { $exitCode = $proc.ExitCode }
-    } catch {
+    }
+    catch {
         Write-Host ""
         Write-Host "  Elevation was cancelled or failed." -ForegroundColor Red
         Write-Host "  Right-click the script and select 'Run as Administrator'." -ForegroundColor Yellow
         Write-Host ""
-        if (-not $Silent) { pause }
+        if (-not $Silent) { Pause }
         Exit-Elevation -ExitCode 1
         return
     }
@@ -262,6 +266,7 @@ function Request-Elevation {
 
 try {
     Export-ModuleMember -Function Test-IsAdmin, Request-Elevation, ConvertTo-ElevationArgumentString, Exit-Elevation -ErrorAction Stop
-} catch {
+}
+catch {
     # Ignored: file is dot-sourced, not imported as a module.
 }

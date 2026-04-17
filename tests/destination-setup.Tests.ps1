@@ -808,10 +808,10 @@ Describe "Script structure validation" {
 # =============================================================================
 Describe "Build-LoadStateArguments" {
     BeforeAll {
-        $script:tbUSMT   = Join-Path $env:TEMP "BuildLoadArgs-USMT-$(Get-Random)"
-        $script:tbStore  = Join-Path $env:TEMP "BuildLoadArgs-Store-$(Get-Random)"
-        $script:tbLog    = Join-Path $env:TEMP "BuildLoadArgs-Log-$(Get-Random).log"
-        $script:tbProg   = Join-Path $env:TEMP "BuildLoadArgs-Prog-$(Get-Random).log"
+        $script:tbUSMT = Join-Path $env:TEMP "BuildLoadArgs-USMT-$(Get-Random)"
+        $script:tbStore = Join-Path $env:TEMP "BuildLoadArgs-Store-$(Get-Random)"
+        $script:tbLog = Join-Path $env:TEMP "BuildLoadArgs-Log-$(Get-Random).log"
+        $script:tbProg = Join-Path $env:TEMP "BuildLoadArgs-Prog-$(Get-Random).log"
     }
 
     It "Returns baseline args with just required params" {
@@ -905,7 +905,7 @@ Describe "Build-LoadStateArguments" {
     It "Returns a string[] array" {
         $a = Build-LoadStateArguments -StorePath $script:tbStore -USMTDir $script:tbUSMT `
             -LogFile $script:tbLog -ProgressFile $script:tbProg
-        ,$a | Should -BeOfType [System.Array]
+        , $a | Should -BeOfType [System.Array]
         $a.Count | Should -BeGreaterThan 0
     }
 }

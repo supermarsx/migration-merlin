@@ -40,7 +40,7 @@ $__SpinnerFrames = @(
     [char]0x2807, [char]0x280F
 )
 
-$__SimpleSpinnerFrames = @('|','/','-','\')
+$__SimpleSpinnerFrames = @('|', '/', '-', '\')
 
 $__StatusIcons = @{
     OK   = '[+]'
@@ -59,19 +59,19 @@ $__StatusColors = @{
 }
 
 $__Constants = @{
-    USMT = @{
+    USMT     = @{
         # Candidate directories searched by Find-USMT in order.
-        SearchPaths      = [string[]]$__USMTSearchPaths
+        SearchPaths     = [string[]]$__USMTSearchPaths
         # Name of the bundled zip file that ships next to the toolkit.
-        ZipName          = 'user-state-migration-tool.zip'
+        ZipName         = 'user-state-migration-tool.zip'
         # Root folder inside the zip (created after extraction).
-        ZipInternalRoot  = 'User State Migration Tool'
+        ZipInternalRoot = 'User State Migration Tool'
         # Executable names used during detection / invocation.
-        ScanStateExe     = 'scanstate.exe'
-        LoadStateExe     = 'loadstate.exe'
+        ScanStateExe    = 'scanstate.exe'
+        LoadStateExe    = 'loadstate.exe'
     }
 
-    ADK = @{
+    ADK      = @{
         # Windows ADK online installer (fallback when no bundled zip is present).
         InstallerUrl  = 'https://go.microsoft.com/fwlink/?linkid=2271337'
         InstallerFile = 'adksetup.exe'
@@ -83,24 +83,24 @@ $__Constants = @{
         ShareDescription = 'MigrationMerlin migration share'
     }
 
-    UI = @{
+    UI       = @{
         # Widths used by Show-Step and Show-ProgressBar respectively.
-        ProgressBarWidth    = 30
-        SubProgressBarWidth = 35
+        ProgressBarWidth      = 30
+        SubProgressBarWidth   = 35
         # Default step counts per script (verified against sources).
         SourceTotalSteps      = 7
         DestinationTotalSteps = 5
         # Banner width used by Show-Banner.
-        BannerWidth         = 56
+        BannerWidth           = 56
         # Spinner frames.
-        SpinnerFrames       = $__SpinnerFrames
-        SimpleSpinnerFrames = $__SimpleSpinnerFrames
+        SpinnerFrames         = $__SpinnerFrames
+        SimpleSpinnerFrames   = $__SimpleSpinnerFrames
         # Status level -> icon / color.
-        StatusIcons  = $__StatusIcons
-        StatusColors = $__StatusColors
+        StatusIcons           = $__StatusIcons
+        StatusColors          = $__StatusColors
     }
 
-    Logging = @{
+    Logging  = @{
         DefaultLogFolder = "$env:TEMP\MigrationMerlin"
     }
 }

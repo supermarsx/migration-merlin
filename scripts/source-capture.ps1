@@ -131,16 +131,16 @@
 param(
     [Parameter(Mandatory = $false)]
     [ValidateScript({
-        [string]::IsNullOrEmpty($_) -or
-        ($_ -match '^\\\\[^\\/:*?"<>|]+\\[^\\/:*?"<>|]+(\\.*)?$')
-    })]
+            [string]::IsNullOrEmpty($_) -or
+            ($_ -match '^\\\\[^\\/:*?"<>|]+\\[^\\/:*?"<>|]+(\\.*)?$')
+        })]
     [string]$DestinationShare = "",
 
     [ValidateScript({
-        [string]::IsNullOrEmpty($_) -or
-        ((Test-Path -LiteralPath $_ -PathType Container) -and
-         (Test-Path -LiteralPath (Join-Path $_ 'scanstate.exe') -PathType Leaf))
-    })]
+            [string]::IsNullOrEmpty($_) -or
+            ((Test-Path -LiteralPath $_ -PathType Container) -and
+            (Test-Path -LiteralPath (Join-Path $_ 'scanstate.exe') -PathType Leaf))
+        })]
     [string]$USMTPath = "",
 
     [string]$ShareUsername = "",
@@ -151,23 +151,23 @@ param(
     [securestring]$SharePassword,
 
     [ValidateScript({
-        foreach ($u in $_) {
-            if ([string]::IsNullOrWhiteSpace($u) -or $u -match '[\\/\[\]:;\|=,\+\*\?<>]') {
-                throw "Invalid profile name: '$u'"
+            foreach ($u in $_) {
+                if ([string]::IsNullOrWhiteSpace($u) -or $u -match '[\\/\[\]:;\|=,\+\*\?<>]') {
+                    throw "Invalid profile name: '$u'"
+                }
             }
-        }
-        $true
-    })]
+            $true
+        })]
     [string[]]$IncludeUsers = @(),
 
     [ValidateScript({
-        foreach ($u in $_) {
-            if ([string]::IsNullOrWhiteSpace($u) -or $u -match '[\\/\[\]:;\|=,\+\*\?<>]') {
-                throw "Invalid profile name: '$u'"
+            foreach ($u in $_) {
+                if ([string]::IsNullOrWhiteSpace($u) -or $u -match '[\\/\[\]:;\|=,\+\*\?<>]') {
+                    throw "Invalid profile name: '$u'"
+                }
             }
-        }
-        $true
-    })]
+            $true
+        })]
     [string[]]$ExcludeUsers = @(),
 
     [switch]$ExtraData,
@@ -178,9 +178,9 @@ param(
     # SecureString in t1-e12. Length floor enforced by inline check mirroring
     # Test-EncryptionKeyStrength (8 char minimum).
     [ValidateScript({
-        $null -eq $_ -or
-        ([System.Net.NetworkCredential]::new('', $_).Password.Length -ge 8)
-    })]
+            $null -eq $_ -or
+            ([System.Net.NetworkCredential]::new('', $_).Password.Length -ge 8)
+        })]
     [securestring]$EncryptionKey,
     [Alias("Silent")]
     [switch]$NonInteractive,
@@ -232,18 +232,22 @@ function ConvertFrom-SecureStringPlain {
 if ($env:MIGRATION_MERLIN_SECURE_SHAREPASSWORD -and -not $SharePassword) {
     try {
         $SharePassword = $env:MIGRATION_MERLIN_SECURE_SHAREPASSWORD | ConvertTo-SecureString
-    } catch {
+    }
+    catch {
         Write-Warning "Failed to decrypt MIGRATION_MERLIN_SECURE_SHAREPASSWORD: $_"
-    } finally {
+    }
+    finally {
         Remove-Item env:MIGRATION_MERLIN_SECURE_SHAREPASSWORD -Force -ErrorAction SilentlyContinue
     }
 }
 if ($env:MIGRATION_MERLIN_SECURE_ENCRYPTIONKEY -and -not $EncryptionKey) {
     try {
         $EncryptionKey = $env:MIGRATION_MERLIN_SECURE_ENCRYPTIONKEY | ConvertTo-SecureString
-    } catch {
+    }
+    catch {
         Write-Warning "Failed to decrypt MIGRATION_MERLIN_SECURE_ENCRYPTIONKEY: $_"
-    } finally {
+    }
+    finally {
         Remove-Item env:MIGRATION_MERLIN_SECURE_ENCRYPTIONKEY -Force -ErrorAction SilentlyContinue
     }
 }
@@ -290,7 +294,8 @@ function Test-Prerequisites {
     if ($os) {
         Show-Status "OS: $($os.Caption) (Build $($os.BuildNumber))" "OK"
         Write-Log "Source OS: $($os.Caption) Build $($os.BuildNumber)"
-    } else {
+    }
+    else {
         Show-Status "Could not determine OS version" "WARN"
     }
 
@@ -328,11 +333,12 @@ function Test-Prerequisites {
         if (Test-Path $p.LocalPath) {
             try {
                 $size = (Get-ChildItem -Path $p.LocalPath -Recurse -Force -ErrorAction SilentlyContinue |
-                    Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum
+                        Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum
                 $totalProfileSize += $size
                 $sizeGB = [math]::Round($size / 1GB, 2)
                 $lastUsed = if ($p.LastUseTime) { $p.LastUseTime.ToString("yyyy-MM-dd") } else { "Unknown" }
-            } catch {
+            }
+            catch {
                 $sizeGB = "?"
                 $lastUsed = "Unknown"
             }
@@ -348,8 +354,9 @@ function Test-Prerequisites {
         $lastUsed = if ($p.LastUseTime) { $p.LastUseTime.ToString("yyyy-MM-dd") } else { "Unknown" }
         try {
             $sizeGB = [math]::Round((Get-ChildItem -Path $p.LocalPath -Recurse -Force -ErrorAction SilentlyContinue |
-                Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum / 1GB, 2)
-        } catch { $sizeGB = "?" }
+                        Measure-Object -Property Length -Sum -ErrorAction SilentlyContinue).Sum / 1GB, 2)
+        }
+        catch { $sizeGB = "?" }
         Show-Detail $username "${sizeGB} GB (last used: $lastUsed)"
     }
 
@@ -448,7 +455,7 @@ function Connect-DestinationShare {
 
     # Map drive
     $driveLetter = $null
-    foreach ($letter in 'Z','Y','X','W','V','U') {
+    foreach ($letter in 'Z', 'Y', 'X', 'W', 'V', 'U') {
         if (-not (Test-Path "${letter}:\")) {
             $driveLetter = $letter
             break
@@ -474,7 +481,8 @@ function Connect-DestinationShare {
         try {
             $result = & net @netArgs 2>&1
             if ($LASTEXITCODE -ne 0) { throw "net use failed: $result" }
-        } finally {
+        }
+        finally {
             # Scrub plaintext password reference as soon as net.exe has consumed it.
             $plainPwd = $null
         }
@@ -482,7 +490,8 @@ function Connect-DestinationShare {
         $script:State.MappedDrive = "${driveLetter}:"
         $script:State.ShareConnected = $true
         Show-Status "Mapped: $DestinationShare -> ${driveLetter}:\" "OK"
-    } catch {
+    }
+    catch {
         Write-Log "Share connection failed: $_" "ERROR"
         Show-Status "Connection failed: $_" "FAIL"
         Show-Status "Try: -ShareUsername 'DOMAIN\user' -SharePassword 'pass'" "INFO"
@@ -495,7 +504,8 @@ function Connect-DestinationShare {
         "test" | Out-File $testFile -Force
         Remove-Item $testFile -Force
         Show-Status "Write access confirmed" "OK"
-    } catch {
+    }
+    catch {
         Safe-Exit -Code 1 -Reason "Cannot write to share at ${driveLetter}:\ - check permissions"
     }
 
@@ -506,7 +516,8 @@ function Connect-DestinationShare {
             $freeGB = [math]::Round($driveInfo.Free / 1GB, 2)
             Show-Status "Destination free space: ${freeGB} GB" "OK"
         }
-    } catch {
+    }
+    catch {
         Write-Log "Could not check destination free space: $_" "WARN"
     }
 
@@ -551,79 +562,85 @@ function Export-PreScanData {
 
     $tasks = @(
         @{ Name = "Installed applications"; Action = {
-            param($dir)
-            $apps = @()
-            $regPaths = @(
-                "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
-                "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
-            )
-            foreach ($rp in $regPaths) {
-                $apps += Get-ItemProperty $rp -ErrorAction SilentlyContinue |
-                    Where-Object { $_.DisplayName } |
-                    Select-Object DisplayName, DisplayVersion, Publisher, InstallDate
-            }
-            $apps | Sort-Object DisplayName -Unique |
-                Export-Csv (Join-Path $dir "InstalledApps.csv") -NoTypeInformation
-            return "$($apps.Count) apps"
-        }},
-        @{ Name = "Printers"; Action = {
-            param($dir)
-            $p = Get-Printer -ErrorAction SilentlyContinue
-            $p | Select-Object Name, DriverName, PortName, Shared, PrinterStatus |
-                Export-Csv (Join-Path $dir "Printers.csv") -NoTypeInformation
-            return "$($p.Count) printers"
-        }},
-        @{ Name = "Mapped network drives"; Action = {
-            param($dir)
-            $d = Get-PSDrive -PSProvider FileSystem |
-                Where-Object { $_.DisplayRoot -like "\\*" } |
-                Select-Object Name, DisplayRoot
-            $d | Export-Csv (Join-Path $dir "MappedDrives.csv") -NoTypeInformation
-            return "$($d.Count) drives"
-        }},
-        @{ Name = "Wi-Fi profiles"; Action = {
-            param($dir)
-            $wifi = netsh wlan show profiles 2>$null
-            if ($wifi) {
-                $wifi | Out-File (Join-Path $dir "WiFiProfiles.txt") -Encoding UTF8
-                $names = ($wifi | Select-String "All User Profile\s+:\s+(.+)$").Matches |
-                    ForEach-Object { $_.Groups[1].Value.Trim() }
-                foreach ($n in $names) {
-                    netsh wlan export profile name="$n" folder="$dir" key=clear 2>$null | Out-Null
+                param($dir)
+                $apps = @()
+                $regPaths = @(
+                    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+                    "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*"
+                )
+                foreach ($rp in $regPaths) {
+                    $apps += Get-ItemProperty $rp -ErrorAction SilentlyContinue |
+                        Where-Object { $_.DisplayName } |
+                        Select-Object DisplayName, DisplayVersion, Publisher, InstallDate
                 }
-                return "$($names.Count) profiles"
+                $apps | Sort-Object DisplayName -Unique |
+                    Export-Csv (Join-Path $dir "InstalledApps.csv") -NoTypeInformation
+                return "$($apps.Count) apps"
             }
-            return "No wireless"
-        }},
+        },
+        @{ Name = "Printers"; Action = {
+                param($dir)
+                $p = Get-Printer -ErrorAction SilentlyContinue
+                $p | Select-Object Name, DriverName, PortName, Shared, PrinterStatus |
+                    Export-Csv (Join-Path $dir "Printers.csv") -NoTypeInformation
+                return "$($p.Count) printers"
+            }
+        },
+        @{ Name = "Mapped network drives"; Action = {
+                param($dir)
+                $d = Get-PSDrive -PSProvider FileSystem |
+                    Where-Object { $_.DisplayRoot -like "\\*" } |
+                    Select-Object Name, DisplayRoot
+                $d | Export-Csv (Join-Path $dir "MappedDrives.csv") -NoTypeInformation
+                return "$($d.Count) drives"
+            }
+        },
+        @{ Name = "Wi-Fi profiles"; Action = {
+                param($dir)
+                $wifi = netsh wlan show profiles 2>$null
+                if ($wifi) {
+                    $wifi | Out-File (Join-Path $dir "WiFiProfiles.txt") -Encoding UTF8
+                    $names = ($wifi | Select-String "All User Profile\s+:\s+(.+)$").Matches |
+                        ForEach-Object { $_.Groups[1].Value.Trim() }
+                    foreach ($n in $names) {
+                        netsh wlan export profile name="$n" folder="$dir" key=clear 2>$null | Out-Null
+                    }
+                    return "$($names.Count) profiles"
+                }
+                return "No wireless"
+            }
+        },
         @{ Name = "Browser bookmarks scan"; Action = {
-            param($dir)
-            $info = @()
-            $ups = Get-CimInstance Win32_UserProfile | Where-Object { -not $_.Special } |
-                Select-Object -ExpandProperty LocalPath
-            foreach ($pp in $ups) {
-                $u = Split-Path $pp -Leaf
-                if (Test-Path (Join-Path $pp "AppData\Local\Google\Chrome\User Data\Default\Bookmarks")) { $info += "$u : Chrome" }
-                if (Test-Path (Join-Path $pp "AppData\Local\Microsoft\Edge\User Data\Default\Bookmarks")) { $info += "$u : Edge" }
-                if (Test-Path (Join-Path $pp "AppData\Roaming\Mozilla\Firefox\Profiles")) { $info += "$u : Firefox" }
+                param($dir)
+                $info = @()
+                $ups = Get-CimInstance Win32_UserProfile | Where-Object { -not $_.Special } |
+                    Select-Object -ExpandProperty LocalPath
+                foreach ($pp in $ups) {
+                    $u = Split-Path $pp -Leaf
+                    if (Test-Path (Join-Path $pp "AppData\Local\Google\Chrome\User Data\Default\Bookmarks")) { $info += "$u : Chrome" }
+                    if (Test-Path (Join-Path $pp "AppData\Local\Microsoft\Edge\User Data\Default\Bookmarks")) { $info += "$u : Edge" }
+                    if (Test-Path (Join-Path $pp "AppData\Roaming\Mozilla\Firefox\Profiles")) { $info += "$u : Firefox" }
+                }
+                $info | Out-File (Join-Path $dir "BrowserBookmarks.txt") -Encoding UTF8
+                return "$($info.Count) browser profiles"
             }
-            $info | Out-File (Join-Path $dir "BrowserBookmarks.txt") -Encoding UTF8
-            return "$($info.Count) browser profiles"
-        }},
+        },
         @{ Name = "System info"; Action = {
-            param($dir)
-            $si = [ordered]@{
-                ComputerName = $env:COMPUTERNAME
-                Domain       = (Get-CimInstance Win32_ComputerSystem).Domain
-                OSVersion    = (Get-CimInstance Win32_OperatingSystem).Caption
-                OSBuild      = (Get-CimInstance Win32_OperatingSystem).BuildNumber
-                Architecture = $env:PROCESSOR_ARCHITECTURE
-                TotalRAM_GB  = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 2)
-                CaptureDate  = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
-                CaptureUser  = "$env:USERDOMAIN\$env:USERNAME"
+                param($dir)
+                $si = [ordered]@{
+                    ComputerName = $env:COMPUTERNAME
+                    Domain       = (Get-CimInstance Win32_ComputerSystem).Domain
+                    OSVersion    = (Get-CimInstance Win32_OperatingSystem).Caption
+                    OSBuild      = (Get-CimInstance Win32_OperatingSystem).BuildNumber
+                    Architecture = $env:PROCESSOR_ARCHITECTURE
+                    TotalRAM_GB  = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 2)
+                    CaptureDate  = (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+                    CaptureUser  = "$env:USERDOMAIN\$env:USERNAME"
+                }
+                $si | ConvertTo-Json -Depth 3 | Out-File (Join-Path $dir "SystemInfo.json") -Encoding UTF8
+                return "OK"
             }
-            $si | ConvertTo-Json -Depth 3 | Out-File (Join-Path $dir "SystemInfo.json") -Encoding UTF8
-            return "OK"
-        }}
+        }
     )
 
     $i = 0
@@ -634,7 +651,8 @@ function Export-PreScanData {
             $result = & $task.Action $preScanDir
             Write-Host ""
             Show-Status "$($task.Name): $result" "OK"
-        } catch {
+        }
+        catch {
             Write-Host ""
             Show-Status "$($task.Name): failed ($_)" "WARN"
             Write-Log "Pre-scan task '$($task.Name)' failed: $_" "WARN"
@@ -673,12 +691,14 @@ function Backup-ExtraData {
                 Copy-Item -Path $item.Src -Destination $dest -Recurse -Force -ErrorAction Stop
                 Write-Host ""
                 Show-Status "$($item.Name) backed up" "OK"
-            } catch {
+            }
+            catch {
                 Write-Host ""
                 Show-Status "$($item.Name) skipped: $_" "WARN"
                 Write-Log "$($item.Name) copy failed: $_" "WARN"
             }
-        } else {
+        }
+        else {
             Write-Host ""
             Show-Status "$($item.Name): not found (skipped)" "INFO"
         }
@@ -709,7 +729,8 @@ function Backup-ExtraData {
         powercfg /export $powerDest (powercfg /getactivescheme).Split()[3] 2>$null
         Write-Host ""
         Show-Status "Power plan exported" "OK"
-    } catch {
+    }
+    catch {
         Write-Host ""
         Show-Status "Power plan skipped" "WARN"
     }
@@ -722,7 +743,8 @@ function Backup-ExtraData {
         $credList | Out-File (Join-Path $extraDir "CredentialsList.txt") -Encoding UTF8
         Write-Host ""
         Show-Status "Credentials listed (passwords not exported)" "OK"
-    } catch {
+    }
+    catch {
         Write-Host ""
         Show-Status "Credentials list skipped" "WARN"
     }
@@ -795,7 +817,8 @@ function Build-ScanStateArguments {
         foreach ($user in $Profiles) {
             $fullName = if ($ResolvedUserMap.ContainsKey($user)) {
                 $ResolvedUserMap[$user]
-            } else {
+            }
+            else {
                 "$env:USERDOMAIN\$user"
             }
             $scanArgs += "/ui:`"$fullName`""
@@ -806,7 +829,8 @@ function Build-ScanStateArguments {
             if ($name -notin $Profiles) {
                 $fullName = if ($ResolvedUserMap.ContainsKey($name)) {
                     $ResolvedUserMap[$name]
-                } else {
+                }
+                else {
                     "$env:USERDOMAIN\$name"
                 }
                 $scanArgs += "/ue:`"$fullName`""
@@ -822,7 +846,7 @@ function Build-ScanStateArguments {
         $scanArgs += "/encrypt /key:`"$EncryptionKey`""
     }
 
-    return ,$scanArgs
+    return , $scanArgs
 }
 
 # ----------------------------------------------------------------------------
@@ -901,7 +925,8 @@ function Watch-ScanStateProgress {
             }
             $avgSpeed = if ($speedSamples.Count -gt 0) {
                 [math]::Round(($speedSamples | Measure-Object -Average).Average, 1)
-            } else { 0 }
+            }
+            else { 0 }
             $speedStr = if ($avgSpeed -gt 0) { " @ ${avgSpeed} MB/s" } else { "" }
 
             $usmtProgress = ""
@@ -915,7 +940,8 @@ function Watch-ScanStateProgress {
 
             $spin = $frames[$frameIdx % $frames.Count]
             Write-Host "`r     [$spin] $sizeStr | $fileCount files | ${elapsed}${speedStr}${usmtProgress}              " -NoNewline -ForegroundColor Cyan
-        } else {
+        }
+        else {
             $spin = $frames[$frameIdx % $frames.Count]
             Write-Host "`r     [$spin] Initializing ScanState... ($elapsed)              " -NoNewline -ForegroundColor DarkCyan
         }
@@ -1029,12 +1055,13 @@ function Invoke-USMTCapture {
                 $ntAccount = (New-Object System.Security.Principal.SecurityIdentifier($wp.SID)).Translate(
                     [System.Security.Principal.NTAccount]).Value
                 $resolvedMap[$short] = $ntAccount
-            } catch {
+            }
+            catch {
                 $resolvedMap[$short] = "$env:USERDOMAIN\$short"
             }
         }
         $allShortNames = @($allWmiProfiles | ForEach-Object { Split-Path $_.LocalPath -Leaf } |
-            Where-Object { $_ -notin @('Public','Default','Default User','All Users') })
+                Where-Object { $_ -notin @('Public', 'Default', 'Default User', 'All Users') })
 
         foreach ($user in $Profiles) {
             $fullName = if ($resolvedMap.ContainsKey($user)) { $resolvedMap[$user] } else { "$env:USERDOMAIN\$user" }
@@ -1122,7 +1149,8 @@ function Invoke-USMTCapture {
     $scanStart = Get-Date
     try {
         $process = Invoke-ScanStateProcess -ScanStateExe $scanstate -Arguments $scanArgs
-    } catch {
+    }
+    catch {
         Safe-Exit -Code 1 -Reason "Failed to launch ScanState ($scanstate): $_"
     }
 
@@ -1206,7 +1234,8 @@ function Main {
     try {
         Add-Type 'using System; using System.Runtime.InteropServices; public static class MwPwrS { [DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f); }' -EA SilentlyContinue
         [MwPwrS]::SetThreadExecutionState(0x80000003) | Out-Null
-    } catch {}
+    }
+    catch {}
 
     Show-Banner "USMT MIGRATION - SOURCE PC CAPTURE"
 
@@ -1264,7 +1293,8 @@ function Main {
             Write-Host "       2. .\post-migration-verify.ps1" -ForegroundColor White
             Write-Host "       3. .\destination-setup.ps1 -Cleanup" -ForegroundColor White
             Write-Host ""
-        } else {
+        }
+        else {
             Write-Host ""
             Show-Status "Capture had errors. Check logs before proceeding." "FAIL"
         }
@@ -1274,11 +1304,13 @@ function Main {
             Copy-Item $LogFile -Destination (Join-Path "$($script:State.MappedDrive)\" "Logs") -Force -ErrorAction SilentlyContinue
         }
 
-    } catch {
+    }
+    catch {
         Show-Status "Fatal error: $_" "FAIL"
         Write-Log "FATAL: $_ `n $($_.ScriptStackTrace)" "FATAL"
         exit 1
-    } finally {
+    }
+    finally {
         Disconnect-Share
     }
 }
@@ -1291,11 +1323,13 @@ function Disconnect-Share {
             if ($result.Success) {
                 Show-Status "Drive $($script:State.MappedDrive) disconnected" "OK"
                 Write-Log "Disconnected drive $($script:State.MappedDrive)"
-            } else {
+            }
+            else {
                 Show-Status "Drive disconnect returned code $($result.ExitCode)" "WARN"
                 Write-Log "Drive disconnect exit code: $($result.ExitCode)" "WARN"
             }
-        } catch {
+        }
+        catch {
             Show-Status "Could not disconnect drive: $_" "WARN"
             Write-Log "Drive disconnect error: $_" "WARN"
         }
@@ -1306,11 +1340,13 @@ function Disconnect-Share {
 $totalElapsed = { ((Get-Date) - $script:State.StartTime).ToString('hh\:mm\:ss') }
 try {
     Main
-} catch {
+}
+catch {
     Show-Status "Fatal error: $_" "FAIL"
     Write-Log "FATAL (outer): $_ `n $($_.ScriptStackTrace)" "FATAL"
     exit 1
-} finally {
+}
+finally {
     Write-Host ""
     Write-Host "  Total time: $(& $totalElapsed)" -ForegroundColor DarkGray
     Write-Log "Script finished. Total time: $(& $totalElapsed)"

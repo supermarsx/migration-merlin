@@ -416,7 +416,7 @@ Describe "Invoke-USMTCapture" {
 
         $fakeUSMT = Join-Path $script:captureStoreDir "USMT-Bin"
         New-Item $fakeUSMT -ItemType Directory -Force | Out-Null
-        foreach ($f in @("scanstate.exe","MigDocs.xml","MigApp.xml")) {
+        foreach ($f in @("scanstate.exe", "MigDocs.xml", "MigApp.xml")) {
             Set-Content (Join-Path $fakeUSMT $f) -Value "FAKE"
         }
 
@@ -566,7 +566,7 @@ Describe "Build-ScanStateArguments" {
         $args = Build-ScanStateArguments `
             -StorePath 'C:\Store' -USMTDir 'C:\USMT' `
             -ScanLog 'C:\l.log' -ScanProgress 'C:\p.log' `
-            -Profiles @('alice','bob') -AllShortNames @('alice','bob','carol')
+            -Profiles @('alice', 'bob') -AllShortNames @('alice', 'bob', 'carol')
         ($args -join ' ') | Should -Match '/ui:"\*\\alice"'
         ($args -join ' ') | Should -Match '/ui:"\*\\bob"'
     }
@@ -575,7 +575,7 @@ Describe "Build-ScanStateArguments" {
         $args = Build-ScanStateArguments `
             -StorePath 'C:\Store' -USMTDir 'C:\USMT' `
             -ScanLog 'C:\l.log' -ScanProgress 'C:\p.log' `
-            -Profiles @('alice') -AllShortNames @('alice','bob','carol')
+            -Profiles @('alice') -AllShortNames @('alice', 'bob', 'carol')
         ($args -join ' ') | Should -Match '/ue:"\*\\bob"'
         ($args -join ' ') | Should -Match '/ue:"\*\\carol"'
     }
@@ -626,7 +626,7 @@ Describe "Build-ScanStateArguments" {
         $args = Build-ScanStateArguments `
             -StorePath 'C:\Store' -USMTDir 'C:\USMT' `
             -ScanLog 'C:\l.log' -ScanProgress 'C:\p.log'
-        ,$args | Should -BeOfType [System.Array]
+        , $args | Should -BeOfType [System.Array]
         $args.Count | Should -BeGreaterThan 5
     }
 }
@@ -703,7 +703,7 @@ Describe "Invoke-ScanStateProcess" {
         Mock Start-TrackedProcess {
             [PSCustomObject]@{ ExitCode = 0; HasExited = $true; Id = 42 }
         }
-        $r = Invoke-ScanStateProcess -ScanStateExe 'scanstate.exe' -Arguments @('/c','/o')
+        $r = Invoke-ScanStateProcess -ScanStateExe 'scanstate.exe' -Arguments @('/c', '/o')
         $r.Id | Should -Be 42
         Should -Invoke Start-TrackedProcess -Times 1
     }
@@ -715,7 +715,7 @@ Describe "Invoke-ScanStateProcess" {
             $script:capturedArgs = $Arguments
             [PSCustomObject]@{ ExitCode = 0; HasExited = $true }
         }
-        Invoke-ScanStateProcess -ScanStateExe 'x.exe' -Arguments @('/c','/o','/vsc') | Out-Null
+        Invoke-ScanStateProcess -ScanStateExe 'x.exe' -Arguments @('/c', '/o', '/vsc') | Out-Null
         $script:capturedArgs | Should -Be '/c /o /vsc'
     }
 }
@@ -734,7 +734,8 @@ Describe "Watch-ScanStateProgress" {
                 -ScanProgressFile (Join-Path $fakeStore 'none.log') `
                 -StartTime (Get-Date) -PollIntervalSeconds 1
             $code | Should -Be 42
-        } finally {
+        }
+        finally {
             Remove-Item $fakeStore -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
@@ -840,7 +841,9 @@ Describe "Connect-DestinationShare structure" {
     }
 
     It "Should try drive letters Z through U" {
-        $script:srcContent | Should -Match "'Z','Y','X','W','V','U'"
+        # Whitespace-tolerant: match `'Z'` ... `'U'` in order regardless of
+        # Invoke-Formatter's comma-spacing.
+        $script:srcContent | Should -Match "'Z'\s*,\s*'Y'\s*,\s*'X'\s*,\s*'W'\s*,\s*'V'\s*,\s*'U'"
     }
 
     It "Should support credential pass-through" {
@@ -1083,8 +1086,8 @@ Describe "Source param-block validation attributes (t1-e12)" {
         # the inner ScriptBlockAst body text directly so the re-created block
         # has the validation expressions as its top-level body.
         $attrSb = ($p.Attributes |
-            Where-Object { $_.TypeName.FullName -eq 'ValidateScript' } |
-            Select-Object -First 1).PositionalArguments[0].ScriptBlock
+                Where-Object { $_.TypeName.FullName -eq 'ValidateScript' } |
+                Select-Object -First 1).PositionalArguments[0].ScriptBlock
         $sb = [ScriptBlock]::Create($attrSb.EndBlock.Extent.Text)
         ('C:\local\path' | ForEach-Object $sb) | Should -BeFalse
     }
@@ -1092,8 +1095,8 @@ Describe "Source param-block validation attributes (t1-e12)" {
     It "DestinationShare ValidateScript accepts a UNC path" {
         $p = Get-E12Param 'DestinationShare'
         $attrSb = ($p.Attributes |
-            Where-Object { $_.TypeName.FullName -eq 'ValidateScript' } |
-            Select-Object -First 1).PositionalArguments[0].ScriptBlock
+                Where-Object { $_.TypeName.FullName -eq 'ValidateScript' } |
+                Select-Object -First 1).PositionalArguments[0].ScriptBlock
         $sb = [ScriptBlock]::Create($attrSb.EndBlock.Extent.Text)
         ('\\server\share' | ForEach-Object $sb) | Should -BeTrue
     }
@@ -1101,19 +1104,19 @@ Describe "Source param-block validation attributes (t1-e12)" {
     It "IncludeUsers ValidateScript rejects a bad profile name" {
         $p = Get-E12Param 'IncludeUsers'
         $attrSb = ($p.Attributes |
-            Where-Object { $_.TypeName.FullName -eq 'ValidateScript' } |
-            Select-Object -First 1).PositionalArguments[0].ScriptBlock
+                Where-Object { $_.TypeName.FullName -eq 'ValidateScript' } |
+                Select-Object -First 1).PositionalArguments[0].ScriptBlock
         $sb = [ScriptBlock]::Create($attrSb.EndBlock.Extent.Text)
-        { ,@('bad\name') | ForEach-Object $sb } | Should -Throw
+        { , @('bad\name') | ForEach-Object $sb } | Should -Throw
     }
 
     It "IncludeUsers ValidateScript accepts valid profile names" {
         $p = Get-E12Param 'IncludeUsers'
         $attrSb = ($p.Attributes |
-            Where-Object { $_.TypeName.FullName -eq 'ValidateScript' } |
-            Select-Object -First 1).PositionalArguments[0].ScriptBlock
+                Where-Object { $_.TypeName.FullName -eq 'ValidateScript' } |
+                Select-Object -First 1).PositionalArguments[0].ScriptBlock
         $sb = [ScriptBlock]::Create($attrSb.EndBlock.Extent.Text)
-        (,@('alice','bob_1','x.y') | ForEach-Object $sb) | Should -BeTrue
+        (, @('alice', 'bob_1', 'x.y') | ForEach-Object $sb) | Should -BeTrue
     }
 
     It "Source script imports MigrationValidators module" {

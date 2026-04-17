@@ -91,7 +91,8 @@ if (Test-Path $summaryFile) {
         $log = Get-Content (Join-Path $ResultsDir 'e2e-run.log') -Encoding UTF8
         $log | Where-Object { $_ -match 'FAIL' } | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
     }
-} else {
+}
+else {
     Write-Host '  TIMEOUT: Sandbox did not produce results within 10 minutes.' -ForegroundColor Red
     Write-Host '  Check if sandbox is still running or if tests errored early.' -ForegroundColor Yellow
 }

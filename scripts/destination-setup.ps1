@@ -112,23 +112,23 @@
 [CmdletBinding(SupportsShouldProcess = $true)]
 param(
     [ValidateScript({
-        [string]::IsNullOrEmpty($_) -or ($_ -match '^[a-zA-Z]:\\')
-    })]
+            [string]::IsNullOrEmpty($_) -or ($_ -match '^[a-zA-Z]:\\')
+        })]
     [string]$MigrationFolder = "C:\MigrationStore",
 
     [ValidateScript({
-        # SMB share name: 1-80 chars, limited punctuation, optional trailing $
-        (-not [string]::IsNullOrEmpty($_)) -and
-        ($_.Length -le 80) -and
-        ($_ -match '^[A-Za-z0-9_\$][A-Za-z0-9_\-\.\$]{0,79}$')
-    })]
+            # SMB share name: 1-80 chars, limited punctuation, optional trailing $
+            (-not [string]::IsNullOrEmpty($_)) -and
+            ($_.Length -le 80) -and
+            ($_ -match '^[A-Za-z0-9_\$][A-Za-z0-9_\-\.\$]{0,79}$')
+        })]
     [string]$ShareName = "MigrationShare$",
 
     [ValidateScript({
-        [string]::IsNullOrEmpty($_) -or
-        ((Test-Path -LiteralPath $_ -PathType Container) -and
-         (Test-Path -LiteralPath (Join-Path $_ 'loadstate.exe') -PathType Leaf))
-    })]
+            [string]::IsNullOrEmpty($_) -or
+            ((Test-Path -LiteralPath $_ -PathType Container) -and
+            (Test-Path -LiteralPath (Join-Path $_ 'loadstate.exe') -PathType Leaf))
+        })]
     [string]$USMTPath = "",
 
     [string]$AllowedSourceIP = "",
@@ -253,7 +253,8 @@ function Test-Prerequisites {
     if ($os) {
         Show-Status "OS: $($os.Caption) (Build $($os.BuildNumber))" "OK"
         Write-Log "OS: $($os.Caption) Build $($os.BuildNumber)"
-    } else {
+    }
+    else {
         Show-Status "Could not determine OS version (WMI unavailable)" "WARN"
         Write-Log "WMI query for OS failed - continuing anyway" "WARN"
     }
@@ -271,14 +272,17 @@ function Test-Prerequisites {
             if ($freeGB -lt 20) {
                 Show-Status "Low disk space! Migration may need 20+ GB" "WARN"
                 Write-Log "Low disk space on ${drive}: ${freeGB} GB free" "WARN"
-            } else {
+            }
+            else {
                 Show-Status "Disk space OK (${freeGB} GB free)" "OK"
             }
-        } else {
+        }
+        else {
             Show-Status "Could not check disk space for $drive" "WARN"
             Write-Log "Disk space check failed for $drive" "WARN"
         }
-    } catch {
+    }
+    catch {
         Show-Status "Disk space check failed: $_" "WARN"
         Write-Log "Disk space check error: $_" "WARN"
     }
@@ -292,7 +296,8 @@ function Test-Prerequisites {
             if ($ipconfigOut -match "IPv4 Address") {
                 Show-Status "Network detected via ipconfig (Get-NetAdapter unavailable)" "WARN"
                 Write-Log "Get-NetAdapter failed but ipconfig shows network" "WARN"
-            } else {
+            }
+            else {
                 Safe-Exit -Code 1 -Reason "No active network adapters found"
             }
         }
@@ -302,17 +307,19 @@ function Test-Prerequisites {
             $ipAddresses = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction Stop |
                 Where-Object { $_.IPAddress -ne "127.0.0.1" -and $_.PrefixOrigin -ne "WellKnown" } |
                 Select-Object -ExpandProperty IPAddress
-        } catch {
+        }
+        catch {
             Write-Log "Get-NetIPAddress failed, falling back to hostname resolution" "WARN"
             $ipAddresses = @([System.Net.Dns]::GetHostAddresses($env:COMPUTERNAME) |
-                Where-Object { $_.AddressFamily -eq 'InterNetwork' } |
-                Select-Object -ExpandProperty IPAddressToString)
+                    Where-Object { $_.AddressFamily -eq 'InterNetwork' } |
+                    Select-Object -ExpandProperty IPAddressToString)
         }
         foreach ($ip in $ipAddresses) {
             Show-Status "Network: $ip" "OK"
         }
         Write-Log "IPs: $($ipAddresses -join ', ')"
-    } catch {
+    }
+    catch {
         Show-Status "Network check failed: $_" "WARN"
         Write-Log "Network check error: $_" "WARN"
     }
@@ -369,7 +376,8 @@ function New-MigrationShare {
             New-Item -Path $MigrationFolder -ItemType Directory -Force -ErrorAction Stop | Out-Null
             Show-Status "Created: $MigrationFolder" "OK"
             Write-Log "Created migration folder: $MigrationFolder"
-        } else {
+        }
+        else {
             Show-Status "Folder exists: $MigrationFolder" "WARN"
         }
 
@@ -381,7 +389,8 @@ function New-MigrationShare {
             }
         }
         Show-Status "Subfolders: $($subfolders -join ', ')" "OK"
-    } catch {
+    }
+    catch {
         Safe-Exit -Code 1 -Reason "Failed to create migration folder structure: $_"
     }
 
@@ -397,14 +406,16 @@ function New-MigrationShare {
                 Set-Acl -Path $MigrationFolder -AclObject $acl
             }
             Show-Status "NTFS permissions set (Everyone: Full Control)" "OK"
-        } else {
+        }
+        else {
             foreach ($account in @($AllowedSourceUser, "SYSTEM", $env:USERNAME)) {
                 try {
                     $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
                         $account, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow"
                     )
                     $acl.SetAccessRule($rule)
-                } catch {
+                }
+                catch {
                     Write-Log "Skipping NTFS rule for '$account': $_" "WARN"
                 }
             }
@@ -413,7 +424,8 @@ function New-MigrationShare {
             }
             Show-Status "NTFS permissions set (restricted: $AllowedSourceUser, SYSTEM, $env:USERNAME)" "OK"
         }
-    } catch {
+    }
+    catch {
         Show-Status "Could not set NTFS permissions: $_ (share may still work)" "WARN"
         Write-Log "NTFS permission set failed: $_" "WARN"
     }
@@ -428,7 +440,8 @@ function New-MigrationShare {
             Show-Status "Removed existing share" "WARN"
             Write-Log "Removed existing share: $ShareName"
         }
-    } catch {
+    }
+    catch {
         Show-Status "Could not remove existing share: $_" "WARN"
         Write-Log "Remove existing share failed: $_" "WARN"
     }
@@ -446,7 +459,8 @@ function New-MigrationShare {
                 Grant-SmbShareAccess -Name $ShareName -AccountName "Everyone" `
                     -AccessRight Full -Force -ErrorAction Stop | Out-Null
             }
-        } else {
+        }
+        else {
             Show-Status "Granting SMB share access to '$AllowedSourceUser' (tightened ACL)." 'OK'
             Write-Log "Share '$ShareName' restricted to '$AllowedSourceUser'" "INFO"
             if ($PSCmdlet.ShouldProcess($ShareName, "Create SMB share (FullAccess: $AllowedSourceUser)")) {
@@ -460,7 +474,8 @@ function New-MigrationShare {
         }
         Show-Status "Share created: \\$env:COMPUTERNAME\$ShareName" "OK"
         Write-Log "Share created: \\$env:COMPUTERNAME\$ShareName -> $MigrationFolder"
-    } catch {
+    }
+    catch {
         # Fallback: try net share command
         Show-Status "New-SmbShare failed: $_ - trying net share fallback..." "WARN"
         Write-Log "New-SmbShare failed: $_ - attempting net share fallback" "WARN"
@@ -471,10 +486,12 @@ function New-MigrationShare {
             if ($netResult.Success) {
                 Show-Status "Share created via net share: \\$env:COMPUTERNAME\$ShareName" "OK"
                 Write-Log "Share created via net share fallback"
-            } else {
+            }
+            else {
                 Safe-Exit -Code 1 -Reason "Failed to create share. net share exit code: $($netResult.ExitCode)"
             }
-        } catch {
+        }
+        catch {
             Safe-Exit -Code 1 -Reason "All share creation methods failed: $_"
         }
     }
@@ -496,11 +513,12 @@ function Set-MigrationFirewall {
             $fpsRules | Set-NetFirewallRule -Enabled True -ErrorAction Stop
             Show-Status "Enabled: File and Printer Sharing" "OK"
         }
-    } catch {
+    }
+    catch {
         Show-Status "Could not enable File and Printer Sharing: $_" "WARN"
         Write-Log "File and Printer Sharing enable failed: $_" "WARN"
         # Fallback: try netsh
-        $netshResult = Invoke-SafeCommand "netsh" @("advfirewall","firewall","set","rule","group=File and Printer Sharing","new","enable=Yes") -OperationName "netsh FPS enable" -SuppressStderr
+        $netshResult = Invoke-SafeCommand "netsh" @("advfirewall", "firewall", "set", "rule", "group=File and Printer Sharing", "new", "enable=Yes") -OperationName "netsh FPS enable" -SuppressStderr
         if ($netshResult.Success) { Show-Status "Enabled FPS via netsh fallback" "OK" }
     }
 
@@ -513,7 +531,8 @@ function Set-MigrationFirewall {
                 Remove-NetFirewallRule -DisplayName $ruleName -ErrorAction Stop
             }
         }
-    } catch {
+    }
+    catch {
         Write-Log "Could not remove existing rule '$ruleName': $_" "WARN"
     }
 
@@ -535,11 +554,12 @@ function Set-MigrationFirewall {
             New-NetFirewallRule @ruleParams -ErrorAction Stop | Out-Null
         }
         Show-Status "Migration firewall rule created (TCP 445, 139)" "OK"
-    } catch {
+    }
+    catch {
         Show-Status "Could not create firewall rule: $_" "WARN"
         Write-Log "Firewall rule creation failed: $_" "WARN"
         # Fallback: try netsh
-        $netshResult = Invoke-SafeCommand "netsh" @("advfirewall","firewall","add","rule","name=$ruleName","dir=in","action=allow","protocol=tcp","localport=445,139") -OperationName "netsh rule add" -SuppressStderr
+        $netshResult = Invoke-SafeCommand "netsh" @("advfirewall", "firewall", "add", "rule", "name=$ruleName", "dir=in", "action=allow", "protocol=tcp", "localport=445,139") -OperationName "netsh rule add" -SuppressStderr
         if ($netshResult.Success) { Show-Status "Firewall rule created via netsh fallback" "OK" }
         else { Show-Status "Firewall rule creation failed - share may not be accessible" "WARN" }
     }
@@ -551,7 +571,8 @@ function Set-MigrationFirewall {
             Set-SmbServerConfiguration -EnableSMB2Protocol $true -Force -ErrorAction Stop
             Show-Status "Enabled SMB2 protocol" "OK"
         }
-    } catch {
+    }
+    catch {
         Show-Status "Could not verify/enable SMB2: $_" "WARN"
         Write-Log "SMB2 check/enable failed: $_" "WARN"
     }
@@ -563,7 +584,8 @@ function Set-MigrationFirewall {
             $ndRules | Set-NetFirewallRule -Enabled True -ErrorAction Stop
             Show-Status "Enabled: Network Discovery" "OK"
         }
-    } catch {
+    }
+    catch {
         Show-Status "Could not enable Network Discovery: $_" "WARN"
         Write-Log "Network Discovery enable failed: $_" "WARN"
     }
@@ -592,7 +614,8 @@ function Show-ConnectionInfo {
             return $false
         }
         Show-Status "Share is writable" "OK"
-    } catch {
+    }
+    catch {
         Show-Status "Share write test failed: $_" "FAIL"
         Write-Log "Share write test error: $_" "ERROR"
         return $false
@@ -689,7 +712,8 @@ function Watch-MigrationProgress {
                     $srcInfo = Get-Content $marker | ConvertFrom-Json
                     Show-Detail "Source PC  " $srcInfo.SourceComputer
                     Show-Detail "Captured   " $srcInfo.CaptureTime
-                } catch {
+                }
+                catch {
                     Write-Log "Could not parse capture-complete.flag: $_" "WARN"
                 }
 
@@ -699,7 +723,8 @@ function Watch-MigrationProgress {
                 Write-Host ""
                 break
             }
-        } else {
+        }
+        else {
             $elapsed = ((Get-Date) - $startWatch).ToString('hh\:mm\:ss')
             Write-Host "`r     [..] Waiting for data ($elapsed elapsed)...          " -NoNewline -ForegroundColor DarkGray
         }
@@ -775,7 +800,7 @@ function Build-LoadStateArguments {
         $loadArgs += "/decrypt /key:`"$DecryptionKey`""
     }
 
-    return ,$loadArgs
+    return , $loadArgs
 }
 
 # ----------------------------------------------------------------------------
@@ -846,7 +871,8 @@ function Invoke-USMTRestore {
     }
     try {
         $version = (Get-Item (Join-Path $script:State.USMTDir "loadstate.exe")).VersionInfo.FileVersion
-    } catch {
+    }
+    catch {
         $version = "unknown"
         Write-Log "Could not read USMT version: $_" "WARN"
     }
@@ -896,7 +922,8 @@ function Invoke-USMTRestore {
     $restoreStart = Get-Date
     try {
         $process = Start-TrackedProcess -FilePath $loadstate -Arguments ($loadArgs -join ' ')
-    } catch {
+    }
+    catch {
         Safe-Exit -Code 1 -Reason "Failed to launch LoadState ($loadstate): $_"
     }
 
@@ -908,7 +935,8 @@ function Invoke-USMTRestore {
             if ($lastLine) {
                 Write-Host "`r     [>>] Restoring... ($elapsed elapsed) $lastLine            " -NoNewline -ForegroundColor Cyan
             }
-        } else {
+        }
+        else {
             Write-Host "`r     [>>] Restoring... ($elapsed elapsed)                          " -NoNewline -ForegroundColor Cyan
         }
         Start-Sleep -Seconds 2
@@ -921,9 +949,9 @@ function Invoke-USMTRestore {
 
     $result = ConvertFrom-LoadStateExitCode -ExitCode $exitCode
     $severityToStatus = @{ 'Success' = 'OK'; 'Warning' = 'WARN'; 'Error' = 'FAIL' }
-    $severityToLog    = @{ 'Success' = 'INFO'; 'Warning' = 'WARN'; 'Error' = 'ERROR' }
+    $severityToLog = @{ 'Success' = 'INFO'; 'Warning' = 'WARN'; 'Error' = 'ERROR' }
     $statusLevel = $severityToStatus[$result.Severity]
-    $logLevel    = $severityToLog[$result.Severity]
+    $logLevel = $severityToLog[$result.Severity]
 
     if ($result.Code -eq 0) {
         Write-Host ""
@@ -931,7 +959,8 @@ function Invoke-USMTRestore {
         Write-Host "  |          RESTORE COMPLETED SUCCESSFULLY               |" -ForegroundColor Green
         Write-Host "  +------------------------------------------------------+" -ForegroundColor Green
         Write-Host ""
-    } else {
+    }
+    else {
         Write-Host ""
         Show-Status $result.Message $statusLevel
     }
@@ -953,7 +982,8 @@ function Remove-MigrationArtifacts {
 
     if ($NonInteractive) {
         $confirm = 'Y'
-    } else {
+    }
+    else {
         $confirm = Read-Host "  Remove migration share, firewall rules, and optionally data? (Y/N)"
     }
     if ($confirm -ne 'Y') {
@@ -964,25 +994,27 @@ function Remove-MigrationArtifacts {
     $localPSCmdlet = $PSCmdlet
     $cleanSteps = @(
         @{ Name = "SMB Share"; Action = {
-            $share = Get-SmbShare -Name $ShareName -ErrorAction SilentlyContinue
-            if ($share) {
-                if ($localPSCmdlet.ShouldProcess($ShareName, "Remove SMB share")) {
-                    Remove-SmbShare -Name $ShareName -Force
+                $share = Get-SmbShare -Name $ShareName -ErrorAction SilentlyContinue
+                if ($share) {
+                    if ($localPSCmdlet.ShouldProcess($ShareName, "Remove SMB share")) {
+                        Remove-SmbShare -Name $ShareName -Force
+                    }
+                    return "Removed"
                 }
-                return "Removed"
+                return "Not found"
             }
-            return "Not found"
-        }},
+        },
         @{ Name = "Firewall Rule"; Action = {
-            $rules = @(Get-NetFirewallRule -DisplayName "USMT-Migration-Inbound" -ErrorAction SilentlyContinue | Where-Object { $_ })
-            if ($rules.Count -gt 0) {
-                if ($localPSCmdlet.ShouldProcess("USMT-Migration-Inbound", "Remove firewall rule")) {
-                    Remove-NetFirewallRule -DisplayName "USMT-Migration-Inbound" -ErrorAction SilentlyContinue
+                $rules = @(Get-NetFirewallRule -DisplayName "USMT-Migration-Inbound" -ErrorAction SilentlyContinue | Where-Object { $_ })
+                if ($rules.Count -gt 0) {
+                    if ($localPSCmdlet.ShouldProcess("USMT-Migration-Inbound", "Remove firewall rule")) {
+                        Remove-NetFirewallRule -DisplayName "USMT-Migration-Inbound" -ErrorAction SilentlyContinue
+                    }
+                    return "Removed $($rules.Count) rule(s)"
                 }
-                return "Removed $($rules.Count) rule(s)"
+                return "Not found"
             }
-            return "Not found"
-        }}
+        }
     )
 
     $i = 0
@@ -996,18 +1028,20 @@ function Remove-MigrationArtifacts {
 
     if ($NonInteractive) {
         $removeData = 'Y'
-    } else {
+    }
+    else {
         $removeData = Read-Host "`n  Also delete migration data at $MigrationFolder? (Y/N)"
     }
     if ($removeData -eq 'Y') {
         $size = (Get-ChildItem -Path $MigrationFolder -Recurse -ErrorAction SilentlyContinue |
-            Measure-Object -Property Length -Sum).Sum
+                Measure-Object -Property Length -Sum).Sum
         $sizeMB = [math]::Round($size / 1MB, 1)
         if ($PSCmdlet.ShouldProcess($MigrationFolder, "Remove migration folder recursively")) {
             Remove-Item -Path $MigrationFolder -Recurse -Force -ErrorAction SilentlyContinue
         }
         Show-Status "Removed $MigrationFolder (freed ~${sizeMB} MB)" "OK"
-    } else {
+    }
+    else {
         Show-Status "Data preserved at: $MigrationFolder" "WARN"
     }
 
@@ -1023,7 +1057,8 @@ function Main {
     try {
         Add-Type 'using System; using System.Runtime.InteropServices; public static class MwPwrD { [DllImport("kernel32.dll")] public static extern uint SetThreadExecutionState(uint f); }' -EA SilentlyContinue
         [MwPwrD]::SetThreadExecutionState(0x80000003) | Out-Null
-    } catch {}
+    }
+    catch {}
 
     Show-Banner "USMT MIGRATION - DESTINATION PC"
 
@@ -1057,7 +1092,8 @@ function Main {
             # Non-interactive: auto-monitor, exit when capture completes
             Show-Status "Non-interactive mode: monitoring for incoming data..." "INFO"
             Watch-MigrationProgress
-        } else {
+        }
+        else {
             Write-Host "     [M] Monitor for incoming data   [Q] Quit (share stays active)" -ForegroundColor DarkGray
             Write-Host ""
 
@@ -1082,11 +1118,13 @@ function Main {
 $totalElapsed = { ((Get-Date) - $script:State.StartTime).ToString('hh\:mm\:ss') }
 try {
     Main
-} catch {
+}
+catch {
     Show-Status "Fatal error: $_" "FAIL"
     Write-Log "FATAL: $_ `n $($_.ScriptStackTrace)" "FATAL"
     exit 1
-} finally {
+}
+finally {
     Write-Host ""
     Write-Host "  Total time: $(& $totalElapsed)" -ForegroundColor DarkGray
     Write-Log "Script finished. Total time: $(& $totalElapsed)"

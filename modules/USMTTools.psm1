@@ -24,7 +24,8 @@ if (Test-Path $_constantsModule) {
         if (Get-Variable -Name 'MigrationConstants' -Scope Global -ErrorAction SilentlyContinue) {
             $script:UsmtToolsConstants = $Global:MigrationConstants
         }
-    } catch {
+    }
+    catch {
         # Fall back to local defaults below.
         $script:UsmtToolsConstants = $null
     }
@@ -44,7 +45,7 @@ function _Get-UsmtDefaults {
         }
     }
     return @{
-        SearchPaths = @(
+        SearchPaths      = @(
             (Join-Path (Split-Path $PSScriptRoot -Parent) 'USMT-Tools')
             "$env:TEMP\USMT-Tools"
             "${env:ProgramFiles(x86)}\Windows Kits\10\Assessment and Deployment Kit\User State Migration Tool"
@@ -66,14 +67,15 @@ function _Write-UsmtLog {
     $cmd = Get-Command Write-Log -ErrorAction SilentlyContinue
     if ($cmd) {
         & $cmd $Message $Level
-    } else {
+    }
+    else {
         Write-Host "[$Level] $Message"
     }
 }
 
 function _Get-UsmtArchitecture {
     if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { return 'arm64' }
-    if ([Environment]::Is64BitOperatingSystem)    { return 'amd64' }
+    if ([Environment]::Is64BitOperatingSystem) { return 'amd64' }
     return 'x86'
 }
 
@@ -112,7 +114,7 @@ function Find-USMT {
     }
 
     $defaults = _Get-UsmtDefaults
-    $arch     = _Get-UsmtArchitecture
+    $arch = _Get-UsmtArchitecture
     $searchPaths = @()
     $searchPaths += $AdditionalSearchPaths
     $searchPaths += $defaults.SearchPaths
@@ -170,8 +172,8 @@ function Expand-BundledUSMT {
     )
 
     $defaults = _Get-UsmtDefaults
-    $zipName  = $defaults.ZipName
-    $zipRoot  = $defaults.ZipInternalRoot
+    $zipName = $defaults.ZipName
+    $zipRoot = $defaults.ZipInternalRoot
 
     $zipSearchPaths = @()
     # Module lives in modules/, so the repo root (where the bundled zip is
@@ -199,7 +201,7 @@ function Expand-BundledUSMT {
     if (-not $ExtractTarget) {
         $ExtractTarget = Join-Path (Split-Path $PSScriptRoot -Parent) 'USMT-Tools'
     }
-    $arch       = _Get-UsmtArchitecture
+    $arch = _Get-UsmtArchitecture
     $archTarget = Join-Path $ExtractTarget $arch
 
     if (Test-Path (Join-Path $archTarget $ExeName)) {
@@ -218,7 +220,8 @@ function Expand-BundledUSMT {
         $staging = Join-Path $env:TEMP ("usmt-stage-" + [guid]::NewGuid().ToString('N'))
         try {
             Expand-Archive -Path $zipPath -DestinationPath $staging -Force -ErrorAction Stop
-        } catch {
+        }
+        catch {
             _Write-UsmtLog "Expand-Archive failed: $_ - falling back to ZipFile API" 'WARN'
             if (Test-Path $staging) { Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue }
             $staging = $null
@@ -233,7 +236,8 @@ function Expand-BundledUSMT {
                 Copy-Item -Path (Join-Path $stagedArch '*') -Destination $archTarget -Recurse -Force
             }
             Remove-Item $staging -Recurse -Force -ErrorAction SilentlyContinue
-        } else {
+        }
+        else {
             # ZipFile API fallback
             Add-Type -AssemblyName System.IO.Compression.FileSystem
             $zip = [System.IO.Compression.ZipFile]::OpenRead($zipPath)
@@ -260,10 +264,12 @@ function Expand-BundledUSMT {
         }
         _Write-UsmtLog "Extraction completed but $ExeName not found" 'ERROR'
         return $null
-    } catch {
+    }
+    catch {
         _Write-UsmtLog "Failed to extract USMT zip: $_" 'ERROR'
         return $null
-    } finally {
+    }
+    finally {
         if ($zip) { try { $zip.Dispose() } catch {} }
     }
 }
@@ -288,7 +294,7 @@ function Install-USMTOnline {
         [string]$ExeName = 'scanstate.exe'
     )
 
-    $defaults     = _Get-UsmtDefaults
+    $defaults = _Get-UsmtDefaults
     $installerUrl = $defaults.AdkInstallerUrl
     $installerFile = $defaults.AdkInstallerFile
 
@@ -301,7 +307,7 @@ function Install-USMTOnline {
     $installerPath = Join-Path $downloadDir $installerFile
 
     try {
-        $downloaded     = $false
+        $downloaded = $false
         $downloadErrors = @()
 
         # Method 1: Invoke-WebRequest
@@ -312,11 +318,13 @@ function Install-USMTOnline {
                 Invoke-WebRequest -Uri $installerUrl -OutFile $installerPath -UseBasicParsing -ErrorAction Stop
                 if ((Test-Path $installerPath) -and (Get-Item $installerPath).Length -gt 50KB) {
                     $downloaded = $true
-                } elseif (Test-Path $installerPath) {
+                }
+                elseif (Test-Path $installerPath) {
                     Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
                     throw 'Downloaded file too small (likely error page)'
                 }
-            } catch { $downloadErrors += "Invoke-WebRequest: $_" }
+            }
+            catch { $downloadErrors += "Invoke-WebRequest: $_" }
         }
 
         # Method 2: HttpClient
@@ -332,11 +340,13 @@ function Install-USMTOnline {
                 $client.Dispose()
                 if ((Test-Path $installerPath) -and (Get-Item $installerPath).Length -gt 50KB) {
                     $downloaded = $true
-                } elseif (Test-Path $installerPath) {
+                }
+                elseif (Test-Path $installerPath) {
                     Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
                     throw 'Downloaded file too small (likely error page)'
                 }
-            } catch { $downloadErrors += "HttpClient: $_" }
+            }
+            catch { $downloadErrors += "HttpClient: $_" }
         }
 
         # Method 3: BITS
@@ -346,11 +356,13 @@ function Install-USMTOnline {
                 Start-BitsTransfer -Source $installerUrl -Destination $installerPath -ErrorAction Stop
                 if ((Test-Path $installerPath) -and (Get-Item $installerPath).Length -gt 50KB) {
                     $downloaded = $true
-                } elseif (Test-Path $installerPath) {
+                }
+                elseif (Test-Path $installerPath) {
                     Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
                     throw 'Downloaded file too small (likely error page)'
                 }
-            } catch { $downloadErrors += "BITS: $_" }
+            }
+            catch { $downloadErrors += "BITS: $_" }
         }
 
         # Method 4: WebClient
@@ -363,11 +375,13 @@ function Install-USMTOnline {
                 $wc.DownloadFile($installerUrl, $installerPath)
                 if ((Test-Path $installerPath) -and (Get-Item $installerPath).Length -gt 50KB) {
                     $downloaded = $true
-                } elseif (Test-Path $installerPath) {
+                }
+                elseif (Test-Path $installerPath) {
                     Remove-Item $installerPath -Force -ErrorAction SilentlyContinue
                     throw 'Downloaded file too small (likely error page)'
                 }
-            } catch { $downloadErrors += "WebClient: $_" }
+            }
+            catch { $downloadErrors += "WebClient: $_" }
         }
 
         if (-not $downloaded) {
@@ -377,7 +391,8 @@ function Install-USMTOnline {
 
         $fileSize = [math]::Round((Get-Item $installerPath).Length / 1MB, 2)
         _Write-UsmtLog "ADK installer downloaded (${fileSize} MB) to $installerPath"
-    } catch {
+    }
+    catch {
         _Write-UsmtLog "ADK download failed: $_" 'ERROR'
         _Write-UsmtLog 'Hint: UAC may have elevated to a different admin account.'
         _Write-UsmtLog 'Manual download: https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install'
@@ -393,7 +408,8 @@ function Install-USMTOnline {
             $exitCode = $proc.ExitCode
             if ($exitCode -eq 0 -or $exitCode -eq 3010) {
                 _Write-UsmtLog "USMT installed (exit code $exitCode)"
-            } else {
+            }
+            else {
                 _Write-UsmtLog "ADK installer exited with code: $exitCode" 'ERROR'
             }
         }
@@ -405,10 +421,12 @@ function Install-USMTOnline {
         }
         _Write-UsmtLog 'USMT binaries not found after install' 'ERROR'
         return $null
-    } catch {
+    }
+    catch {
         _Write-UsmtLog "USMT installation failed: $_" 'ERROR'
         return $null
-    } finally {
+    }
+    finally {
         if (Test-Path $downloadDir) {
             Remove-Item $downloadDir -Recurse -Force -ErrorAction SilentlyContinue
         }
@@ -471,10 +489,10 @@ function Start-TrackedProcess {
         [string]$Arguments = ''
     )
     $psi = [System.Diagnostics.ProcessStartInfo]::new()
-    $psi.FileName        = $FilePath
-    $psi.Arguments       = $Arguments
+    $psi.FileName = $FilePath
+    $psi.Arguments = $Arguments
     $psi.UseShellExecute = $false
-    $psi.CreateNoWindow  = $false
+    $psi.CreateNoWindow = $false
     return [System.Diagnostics.Process]::Start($psi)
 }
 

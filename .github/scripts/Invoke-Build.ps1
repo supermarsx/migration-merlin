@@ -30,7 +30,7 @@
 [CmdletBinding()]
 param(
     [string]$OutputDir = 'dist',
-    [string]$RepoRoot  = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+    [string]$RepoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 )
 
 $ErrorActionPreference = 'Stop'
@@ -78,7 +78,8 @@ Write-Host "Build: parsed $($psFiles.Count) PowerShell file(s) cleanly."
 
 $absOutput = if ([System.IO.Path]::IsPathRooted($OutputDir)) {
     $OutputDir
-} else {
+}
+else {
     Join-Path $RepoRoot $OutputDir
 }
 
@@ -103,7 +104,11 @@ $stageFiles = @(
     'license.md',
     'LICENSE.md',
     'LICENSE',
-    'version'
+    'version',
+    # Bundled USMT binaries. Shipping the zip inside the release artifact
+    # means users on offline / air-gapped machines do not have to fetch
+    # USMT separately; Expand-BundledUSMT finds it at the repo root.
+    'user-state-migration-tool.zip'
 )
 foreach ($file in $stageFiles) {
     $src = Join-Path $RepoRoot $file
@@ -125,9 +130,11 @@ if ([string]::IsNullOrWhiteSpace($sha)) {
     try {
         Push-Location $RepoRoot
         $sha = (git rev-parse HEAD 2>$null).Trim()
-    } catch {
+    }
+    catch {
         $sha = 'unknown'
-    } finally {
+    }
+    finally {
         Pop-Location
     }
 }

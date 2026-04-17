@@ -80,9 +80,9 @@ Describe 'Test-USMTPath' {
         $script:tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) "mv-usmt-$([guid]::NewGuid().ToString('N'))"
         New-Item -ItemType Directory -Path $script:tmpRoot -Force | Out-Null
 
-        $script:withScan  = Join-Path $script:tmpRoot 'withscan'
-        $script:withLoad  = Join-Path $script:tmpRoot 'withload'
-        $script:emptyDir  = Join-Path $script:tmpRoot 'empty'
+        $script:withScan = Join-Path $script:tmpRoot 'withscan'
+        $script:withLoad = Join-Path $script:tmpRoot 'withload'
+        $script:emptyDir = Join-Path $script:tmpRoot 'empty'
         foreach ($d in $script:withScan, $script:withLoad, $script:emptyDir) {
             New-Item -ItemType Directory -Path $d -Force | Out-Null
         }

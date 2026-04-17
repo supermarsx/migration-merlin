@@ -32,23 +32,23 @@
 BeforeAll {
     Import-Module "$PSScriptRoot\TestHelpers.psm1" -Force
 
-    $ScriptRoot    = Split-Path $PSScriptRoot -Parent
-    $SourceScript  = "$ScriptRoot\scripts\source-capture.ps1"
-    $DestScript    = "$ScriptRoot\scripts\destination-setup.ps1"
-    $TuiScript     = "$ScriptRoot\MigrationMerlin.ps1"
+    $ScriptRoot = Split-Path $PSScriptRoot -Parent
+    $SourceScript = "$ScriptRoot\scripts\source-capture.ps1"
+    $DestScript = "$ScriptRoot\scripts\destination-setup.ps1"
+    $TuiScript = "$ScriptRoot\MigrationMerlin.ps1"
     $ConstantsPath = "$ScriptRoot\modules\MigrationConstants.psm1"
 
-    $srcContent  = Get-Content $SourceScript  -Raw
+    $srcContent = Get-Content $SourceScript  -Raw
     $destContent = Get-Content $DestScript    -Raw
-    $tuiContent  = Get-Content $TuiScript     -Raw
+    $tuiContent = Get-Content $TuiScript     -Raw
 
     # Load MigrationConstants so the URL-integrity test can read the real value.
     Import-Module $ConstantsPath -Force
     $script:MC = & (Get-Module MigrationConstants) { $MigrationConstants }
 
     $Arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' }
-            elseif ([Environment]::Is64BitOperatingSystem)  { 'amd64' }
-            else                                            { 'x86' }
+    elseif ([Environment]::Is64BitOperatingSystem) { 'amd64' }
+    else { 'x86' }
 }
 
 AfterAll {
@@ -178,7 +178,7 @@ Describe 'USMT binaries validation (live system)' -Tag 'Integration' {
 
     It 'scanstate.exe and loadstate.exe exist and are non-empty' {
         if (-not $script:UsmtDir) { Set-ItResult -Skipped -Because 'USMT not installed on this host' }
-        foreach ($exe in 'scanstate.exe','loadstate.exe') {
+        foreach ($exe in 'scanstate.exe', 'loadstate.exe') {
             $path = Join-Path $script:UsmtDir $exe
             Test-Path $path | Should -BeTrue
             (Get-Item $path).Length | Should -BeGreaterThan 0

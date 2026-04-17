@@ -107,7 +107,8 @@ public static class MwKernel {
     [void][MwKernel]::SetConsoleMode($h, $m -bor 4)
     # Prevent sleep + screen off while TUI is running
     [MwKernel]::KeepAwake()
-} catch {}
+}
+catch {}
 
 # Auto-elevate (marshals $PSBoundParameters across UAC via Invoke-Elevated helper).
 Request-Elevation -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
@@ -132,27 +133,28 @@ if ([Console]::WindowWidth -lt 64) {
 #  ANSI CONSTANTS
 # ════════════════════════════════════════════════════════════════
 
-$E          = [char]0x1B
-$RST        = "$E[0m"
-$BLD        = "$E[1m"
-$cR         = "$E[91m"   # red
-$cG         = "$E[92m"   # green
-$cY         = "$E[93m"   # yellow
-$cB         = "$E[94m"   # blue
-$cM         = "$E[95m"   # magenta
-$cC         = "$E[96m"   # cyan
-$cW         = "$E[97m"   # white
-$cGR        = "$E[90m"   # gray
+$E = [char]0x1B
+$RST = "$E[0m"
+$BLD = "$E[1m"
+$cR = "$E[91m"   # red
+$cG = "$E[92m"   # green
+$cY = "$E[93m"   # yellow
+$cB = "$E[94m"   # blue
+$cM = "$E[95m"   # magenta
+$cC = "$E[96m"   # cyan
+$cW = "$E[97m"   # white
+$cGR = "$E[90m"   # gray
 
 # Spinner frames. Prefer $MigrationConstants.UI.SpinnerFrames (same braille
 # sequence, centralized in Phase 1). Fall back to the original literal array
 # if MigrationConstants isn't loaded for any reason.
 if ($MigrationConstants -and $MigrationConstants.UI -and $MigrationConstants.UI.SpinnerFrames) {
     $Spin = $MigrationConstants.UI.SpinnerFrames
-} else {
-    $Spin = @([char]0x280B,[char]0x2819,[char]0x2839,[char]0x2838,
-              [char]0x283C,[char]0x2834,[char]0x2826,[char]0x2827,
-              [char]0x2807,[char]0x280F)
+}
+else {
+    $Spin = @([char]0x280B, [char]0x2819, [char]0x2839, [char]0x2838,
+        [char]0x283C, [char]0x2834, [char]0x2826, [char]0x2827,
+        [char]0x2807, [char]0x280F)
 }
 
 # ════════════════════════════════════════════════════════════════
@@ -163,15 +165,20 @@ $script:Sel = 0
 $script:Done = @{}                        # Action -> $true
 $script:Items = @(
     [pscustomobject]@{ Key='1'; Label='Setup Destination'; Tag='DEST';
-        Desc='Install USMT, create hidden network share (MigrationShare$), open firewall ports. Run on the NEW PC first.'; Action='Setup' }
+        Desc='Install USMT, create hidden network share (MigrationShare$), open firewall ports. Run on the NEW PC first.'; Action='Setup' 
+    }
     [pscustomobject]@{ Key='2'; Label='Capture Source'; Tag='SRC';
-        Desc='Scan user profiles, files & settings on the OLD PC and transfer to the destination share.'; Action='Capture' }
+        Desc='Scan user profiles, files & settings on the OLD PC and transfer to the destination share.'; Action='Capture' 
+    }
     [pscustomobject]@{ Key='3'; Label='Restore Data'; Tag='DEST';
-        Desc='Apply captured user state on the NEW PC via USMT LoadState. Steps 1 & 2 must be complete.'; Action='Restore' }
+        Desc='Apply captured user state on the NEW PC via USMT LoadState. Steps 1 & 2 must be complete.'; Action='Restore' 
+    }
     [pscustomobject]@{ Key='4'; Label='Verify Migration'; Tag='DEST';
-        Desc='Compare pre-migration inventory with current state. Shows what migrated and what needs attention.'; Action='Verify' }
+        Desc='Compare pre-migration inventory with current state. Shows what migrated and what needs attention.'; Action='Verify' 
+    }
     [pscustomobject]@{ Key='5'; Label='Cleanup'; Tag='DEST';
-        Desc='Remove network share, firewall rules, and temporary migration data from the NEW PC.'; Action='Cleanup' }
+        Desc='Remove network share, firewall rules, and temporary migration data from the NEW PC.'; Action='Cleanup' 
+    }
 )
 $script:TotalChoices = $script:Items.Count + 1   # +1 for Quit
 
@@ -179,18 +186,18 @@ $script:TotalChoices = $script:Items.Count + 1   # +1 for Quit
 #  HELPERS
 # ════════════════════════════════════════════════════════════════
 
-function Rep([string]$c,[int]$n){ if($n -le 0){''}else{$c * $n} }
-function Strip([string]$t){ $t -replace '\x1B\[[0-9;]*m','' }
-function PadR([string]$t,[int]$w){ $p=[Math]::Max(0,$w-(Strip $t).Length); "$t$(Rep ' ' $p)" }
-function PadC([string]$t,[int]$w){
-    $vis=(Strip $t).Length; $gap=[Math]::Max(0,$w-$vis)
-    $l=[Math]::Floor($gap/2); $r=$gap-$l
+function Rep([string]$c, [int]$n) { if ($n -le 0) { '' }else { $c * $n } }
+function Strip([string]$t) { $t -replace '\x1B\[[0-9;]*m', '' }
+function PadR([string]$t, [int]$w) { $p = [Math]::Max(0, $w - (Strip $t).Length); "$t$(Rep ' ' $p)" }
+function PadC([string]$t, [int]$w) {
+    $vis = (Strip $t).Length; $gap = [Math]::Max(0, $w - $vis)
+    $l = [Math]::Floor($gap / 2); $r = $gap - $l
     "$(Rep ' ' $l)$t$(Rep ' ' $r)"
 }
 function HideCur { [Console]::Write("$E[?25l") }
 function ShowCur { [Console]::Write("$E[?25h") }
 function FlushKeys { while ([Console]::KeyAvailable) { [void][Console]::ReadKey($true) } }
-function WaitKey  { FlushKeys; return [Console]::ReadKey($true) }
+function WaitKey { FlushKeys; return [Console]::ReadKey($true) }
 
 # ════════════════════════════════════════════════════════════════
 #  CONFIG SAVE / LOAD / RESUME
@@ -214,7 +221,8 @@ function Load-RunConfig([string]$Step) {
     try {
         $json = Get-Content $file -Raw -Encoding UTF8 | ConvertFrom-Json
         return $json
-    } catch { return $null }
+    }
+    catch { return $null }
 }
 
 function Show-ConfigPrompt([string]$Step) {
@@ -252,9 +260,10 @@ function Find-MigrationShares {
     # Add default gateway
     try {
         $gw = (Get-NetRoute -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
-               Select-Object -First 1).NextHop
+                Select-Object -First 1).NextHop
         if ($gw -and $gw -ne '0.0.0.0') { $candidates += $gw }
-    } catch {}
+    }
+    catch {}
 
     $candidates = $candidates |
         Where-Object { $_ -notmatch '\.(255|0)$' -and $_ -ne '255.255.255.255' } |
@@ -278,9 +287,10 @@ function Find-MigrationShares {
                     $found.Add([pscustomobject]@{ IP = $ip; Name = $name; Path = "\\$ip\MigrationShare`$" })
                 }
             }
-        } catch {} finally { $tcp.Dispose() }
+        }
+        catch {} finally { $tcp.Dispose() }
     }
-    return ,$found.ToArray()
+    return , $found.ToArray()
 }
 
 function Test-ShareAccess([string]$Path) {
@@ -298,9 +308,11 @@ function Test-ShareAccess([string]$Path) {
             return [pscustomobject]@{ OK = $false; Detail = "Host $hostPart is not reachable (port 445 timeout)" }
         }
         $tcp.EndConnect($ar)
-    } catch {
+    }
+    catch {
         return [pscustomobject]@{ OK = $false; Detail = "Host $hostPart is not reachable" }
-    } finally { $tcp.Dispose() }
+    }
+    finally { $tcp.Dispose() }
 
     if (Test-Path $Path -ErrorAction SilentlyContinue) {
         return [pscustomobject]@{ OK = $true; Detail = 'Share accessible' }
@@ -324,9 +336,9 @@ function Show-SharePicker {
     while ($null -eq $choice) {
         $k = [Console]::ReadKey($true)
         switch -regex ("$($k.KeyChar)") {
-            '[sS]'  { Write-Host 'Scan'; HideCur; $choice = 'scan' }
-            '[mM]'  { Write-Host 'Manual'; HideCur; $choice = 'manual' }
-            default  {
+            '[sS]' { Write-Host 'Scan'; HideCur; $choice = 'scan' }
+            '[mM]' { Write-Host 'Manual'; HideCur; $choice = 'manual' }
+            default {
                 if ($k.Key -eq 'Enter') { Write-Host 'Scan'; HideCur; $choice = 'scan' }
             }
         }
@@ -352,7 +364,8 @@ function Show-SharePicker {
             Write-Host "    ${cGR}Make sure Step 1 was run on the destination PC first.${RST}"
             Write-Host ""
             $sharePath = Prompt-Text 'Enter share path manually' -Example '\\NEWPC\MigrationShare$' -Required
-        } else {
+        }
+        else {
             Write-Host ""
             Write-Host "    ${BLD}${cW}Found $($shares.Count) share$(if($shares.Count -gt 1){'s'}):${RST}"
             for ($i = 0; $i -lt $shares.Count; $i++) {
@@ -374,7 +387,8 @@ function Show-SharePicker {
                     Write-Host 'Manual'; HideCur
                     $sharePath = Prompt-Text 'Enter share path' -Example '\\NEWPC\MigrationShare$' -Required
                     $picked = $true
-                } else {
+                }
+                else {
                     $numVal = 0
                     if ([int]::TryParse("$($k.KeyChar)", [ref]$numVal) -and $numVal -ge 1 -and $numVal -le $shares.Count) {
                         $sharePath = $shares[$numVal - 1].Path
@@ -384,7 +398,8 @@ function Show-SharePicker {
                 }
             }
         }
-    } else {
+    }
+    else {
         $sharePath = Prompt-Text 'Destination share path' -Example '\\NEWPC\MigrationShare$' -Required
     }
 
@@ -397,7 +412,8 @@ function Show-SharePicker {
     $result = Test-ShareAccess $sharePath
     if ($result.OK) {
         Write-Host "`r    ${cG}$([char]0x2713)${RST} ${cW}$($result.Detail)${RST}                      "
-    } else {
+    }
+    else {
         Write-Host "`r    ${cR}$([char]0x2717)${RST} ${cR}$($result.Detail)${RST}                      "
         if (-not (Prompt-Confirm 'Continue anyway?')) {
             return Show-SharePicker   # retry
@@ -431,15 +447,15 @@ function Build-MainScreen {
         $isSel = ($i -eq $script:Sel)
         $isDone = $script:Done.ContainsKey($it.Action)
 
-        $arrow  = if($isSel){ "${cC}$([char]0x25B8)${RST}" } else { ' ' }
-        $marker = if($isDone){ "${cG}$([char]0x2713)${RST}" } else { "${cGR}$([char]0x25CB)${RST}" }
-        $num    = "${cGR}$($it.Key).${RST}"
-        $lbl    = if($isSel){ "${BLD}${cW}$($it.Label)${RST}" } else { "${cW}$($it.Label)${RST}" }
-        $tag    = "${cGR}[$($it.Tag)]${RST}"
+        $arrow = if ($isSel) { "${cC}$([char]0x25B8)${RST}" } else { ' ' }
+        $marker = if ($isDone) { "${cG}$([char]0x2713)${RST}" } else { "${cGR}$([char]0x25CB)${RST}" }
+        $num = "${cGR}$($it.Key).${RST}"
+        $lbl = if ($isSel) { "${BLD}${cW}$($it.Label)${RST}" } else { "${cW}$($it.Label)${RST}" }
+        $tag = "${cGR}[$($it.Tag)]${RST}"
 
-        $left   = "  $arrow $marker $num $lbl"
-        $visL   = (Strip $left).Length
-        $gap    = [Math]::Max(1, 55 - $visL)
+        $left = "  $arrow $marker $num $lbl"
+        $visL = (Strip $left).Length
+        $gap = [Math]::Max(1, 55 - $visL)
         [void]$b.AppendLine("$left$(Rep ' ' $gap)$tag")
 
         if ($i -eq 1) { [void]$b.AppendLine() }   # visual break after Capture
@@ -450,7 +466,8 @@ function Build-MainScreen {
     $qSel = ($script:Sel -eq $script:Items.Count)
     if ($qSel) {
         [void]$b.AppendLine("  ${cC}$([char]0x25B8)${RST}   ${BLD}${cW}Q. Quit${RST}")
-    } else {
+    }
+    else {
         [void]$b.AppendLine("      ${cGR}Q.${RST} ${cW}Quit${RST}")
     }
 
@@ -462,7 +479,7 @@ function Build-MainScreen {
         $words = $desc -split ' '; $lines = @(); $cur = ''
         foreach ($wd in $words) {
             if (($cur.Length + $wd.Length + 1) -gt $mw) { $lines += $cur; $cur = $wd }
-            else { $cur = if($cur){"$cur $wd"}else{$wd} }
+            else { $cur = if ($cur) { "$cur $wd" }else { $wd } }
         }
         if ($cur) { $lines += $cur }
 
@@ -489,7 +506,7 @@ function Read-MenuChoice {
     while ($true) {
         $k = [Console]::ReadKey($true)
         switch ($k.Key) {
-            'UpArrow'   { $script:Sel = ($script:Sel - 1 + $script:TotalChoices) % $script:TotalChoices; [Console]::Write((Build-MainScreen)) }
+            'UpArrow' { $script:Sel = ($script:Sel - 1 + $script:TotalChoices) % $script:TotalChoices; [Console]::Write((Build-MainScreen)) }
             'DownArrow' { $script:Sel = ($script:Sel + 1) % $script:TotalChoices; [Console]::Write((Build-MainScreen)) }
             'Enter' {
                 if ($script:Sel -eq $script:Items.Count) { return 'Quit' }
@@ -505,7 +522,7 @@ function Read-MenuChoice {
     }
 }
 
-function Prompt-Text([string]$Label, [string]$Default='', [string]$Example='', [switch]$Required) {
+function Prompt-Text([string]$Label, [string]$Default = '', [string]$Example = '', [switch]$Required) {
     ShowCur
     Write-Host "    ${BLD}${cW}${Label}${RST}"
     if ($Example) { Write-Host "    ${cGR}Example: $Example${RST}" }
@@ -519,16 +536,17 @@ function Prompt-Text([string]$Label, [string]$Default='', [string]$Example='', [
     HideCur; return $val
 }
 
-function Prompt-Toggle([string]$Label, [bool]$Default=$false) {
-    $opts = if($Default){"[${cG}Y${RST}/n]"}else{"[y/${cG}N${RST}]"}
+function Prompt-Toggle([string]$Label, [bool]$Default = $false) {
+    $opts = if ($Default) { "[${cG}Y${RST}/n]" }else { "[y/${cG}N${RST}]" }
     Write-Host "    ${cW}$Label${RST} $opts " -NoNewline
     ShowCur
     $k = WaitKey
     # switch is case-insensitive by default — duplicate branches cause array return!
-    $r = switch($k.KeyChar){ 'y'{$true} 'n'{$false} default{$Default} }
+    $r = switch ($k.KeyChar) { 'y' { $true } 'n' { $false } default { $Default } }
     if ($r) {
         Write-Host "${cG}Yes $([char]0x2713)${RST}"
-    } else {
+    }
+    else {
         Write-Host "${cW}No ${cR}$([char]0x2717)${RST}"
     }
     HideCur; return $r
@@ -538,7 +556,8 @@ function Prompt-Confirm([string]$Msg, [switch]$DefaultYes) {
     Write-Host ""
     if ($DefaultYes) {
         $opts = "[${cG}Y${RST}/n]"
-    } else {
+    }
+    else {
         $opts = "[y/${cG}N${RST}]"
     }
     Write-Host "    ${BLD}${cY}?${RST} ${cW}$Msg${RST} $opts " -NoNewline
@@ -546,12 +565,14 @@ function Prompt-Confirm([string]$Msg, [switch]$DefaultYes) {
     $k = WaitKey
     if ($DefaultYes) {
         $r = $k.KeyChar -ne 'n' -and $k.KeyChar -ne 'N'
-    } else {
+    }
+    else {
         $r = $k.KeyChar -eq 'y' -or $k.KeyChar -eq 'Y'
     }
     if ($r) {
         Write-Host "${cG}Yes $([char]0x2713)${RST}"
-    } else {
+    }
+    else {
         Write-Host "${BLD}${cR}No $([char]0x2717)${RST}"
     }
     HideCur; return $r
@@ -567,7 +588,7 @@ function Wait-AnyKey {
 #  STEP HEADER & RESULT BANNERS
 # ════════════════════════════════════════════════════════════════
 
-function Show-StepHeader([string]$Title, [string]$Sub='') {
+function Show-StepHeader([string]$Title, [string]$Sub = '') {
     [Console]::Write("$E[2J$E[H"); HideCur
     $W = 62; $IW = $W - 2
     Write-Host ""
@@ -580,9 +601,9 @@ function Show-StepHeader([string]$Title, [string]$Sub='') {
 function Show-ResultBanner([bool]$Ok, [string]$Msg) {
     try {
         # Truncate long messages to fit the 56-char box
-        if ($Msg.Length -gt 50) { $Msg = $Msg.Substring(0,47) + '...' }
-        $icon = if($Ok){ "$([char]0x2713)" }else{ "$([char]0x2717)" }
-        $col  = if($Ok){ $cG }else{ $cR }
+        if ($Msg.Length -gt 50) { $Msg = $Msg.Substring(0, 47) + '...' }
+        $icon = if ($Ok) { "$([char]0x2713)" }else { "$([char]0x2717)" }
+        $col = if ($Ok) { $cG }else { $cR }
 
         Write-Host ""
         Write-Host "  ${cGR}$(Rep ([char]0x2500) 58)${RST}"
@@ -594,11 +615,12 @@ function Show-ResultBanner([bool]$Ok, [string]$Msg) {
         $lp = [Math]::Floor($pad / 2); $rp = $pad - $lp
         Write-Host "  ${col}$([char]0x2502)${RST} $(Rep ' ' $lp)${BLD}${col}${inner}${RST}$(Rep ' ' $rp) ${col}$([char]0x2502)${RST}"
         Write-Host "  ${col}$([char]0x2514)$(Rep ([char]0x2500) 56)$([char]0x2518)${RST}"
-    } catch {
+    }
+    catch {
         # Fallback if anything goes wrong with rendering
         Write-Host ""
         if ($Ok) { Write-Host "  ${cG}$([char]0x2713) $Msg${RST}" }
-        else     { Write-Host "  ${cR}$([char]0x2717) $Msg${RST}" }
+        else { Write-Host "  ${cR}$([char]0x2717) $Msg${RST}" }
     }
 }
 
@@ -654,7 +676,7 @@ exit `$LASTEXITCODE
     $frame = 0; $t0 = Get-Date
     while (-not $proc.HasExited) {
         $el = ((Get-Date) - $t0).ToString('mm\:ss')
-        $s  = $Spin[$frame % $Spin.Count]
+        $s = $Spin[$frame % $Spin.Count]
         $host.UI.RawUI.WindowTitle = "$s  $Label  [$el]"
         # Windows Terminal tab progress (indeterminate spinner)
         [Console]::Write("$E]9;4;3;0$E\")
@@ -682,8 +704,8 @@ exit `$LASTEXITCODE
 function Find-USMT([string]$CustomPath) {
     <# Check if USMT (scanstate/loadstate) is reachable. Returns @{ Found; Path; Detail }. #>
     $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' }
-            elseif ([Environment]::Is64BitOperatingSystem) { 'amd64' }
-            else { 'x86' }
+    elseif ([Environment]::Is64BitOperatingSystem) { 'amd64' }
+    else { 'x86' }
 
     $candidates = @()
     if ($CustomPath) { $candidates += $CustomPath }
@@ -710,7 +732,8 @@ function Find-USMT([string]$CustomPath) {
             try {
                 $null = & $exe /? 2>&1
                 return [pscustomobject]@{ Found = $true; Path = $tp; Detail = "scanstate.exe verified in $tp" }
-            } catch {
+            }
+            catch {
                 $errMsg = "$_"
                 if ($errMsg -match 'compat|machine type|version') {
                     # Binary exists but wrong arch — keep searching
@@ -776,7 +799,8 @@ function Validate-Inline([string]$Label, [scriptblock]$Check) {
     $ok = & $Check
     if ($ok) {
         Write-Host "`r    ${cG}$([char]0x2713)${RST} ${cW}$Label${RST}                                    "
-    } else {
+    }
+    else {
         Write-Host "`r    ${cR}$([char]0x2717)${RST} ${cR}$Label${RST}                                    "
     }
     return $ok
@@ -803,9 +827,9 @@ function Show-UserPicker {
     while ($null -eq $mode) {
         $k = [Console]::ReadKey($true)
         switch -regex ("$($k.KeyChar)") {
-            '[iI]'  { Write-Host 'Interactive'; HideCur; $mode = 'interactive' }
-            '[mM]'  { Write-Host 'Manual'; HideCur; $mode = 'manual' }
-            '[aA]'  { Write-Host 'All users'; HideCur; return @{ Include = ''; Exclude = '' } }
+            '[iI]' { Write-Host 'Interactive'; HideCur; $mode = 'interactive' }
+            '[mM]' { Write-Host 'Manual'; HideCur; $mode = 'manual' }
+            '[aA]' { Write-Host 'All users'; HideCur; return @{ Include = ''; Exclude = '' } }
             default {
                 if ($k.Key -eq 'Enter') { Write-Host 'All users'; HideCur; return @{ Include = ''; Exclude = '' } }
             }
@@ -830,7 +854,8 @@ function Show-UserPicker {
             try {
                 $display = (New-Object System.Security.Principal.SecurityIdentifier($wp.SID)).Translate(
                     [System.Security.Principal.NTAccount]).Value
-            } catch {}
+            }
+            catch {}
             $profiles += [pscustomobject]@{
                 Display  = $display
                 Short    = $short
@@ -838,7 +863,8 @@ function Show-UserPicker {
                 Selected = $true
             }
         }
-    } catch {
+    }
+    catch {
         Write-Host "    ${cY}$([char]0x26A0) Could not enumerate users. Falling back to manual entry.${RST}"
         $inc = Prompt-Text 'Include users (comma-separated, blank for all)'
         $exc = Prompt-Text 'Exclude users (comma-separated, blank for none)'
@@ -869,8 +895,8 @@ function Show-UserPicker {
             $p = $script:ulProfiles[$i]
             $arrow = if ($i -eq $script:ulIdx) { "${cC}$([char]0x25B8)${RST}" } else { ' ' }
             $check = if ($p.Selected) { "${cG}$([char]0x2713)${RST}" } else { "${cGR}$([char]0x25CB)${RST}" }
-            $lbl   = if ($i -eq $script:ulIdx) { "${BLD}${cW}$($p.Display)${RST}" } else { "${cW}$($p.Display)${RST}" }
-            $path  = "${cGR}$($p.Path)${RST}"
+            $lbl = if ($i -eq $script:ulIdx) { "${BLD}${cW}$($p.Display)${RST}" } else { "${cW}$($p.Display)${RST}" }
+            $path = "${cGR}$($p.Path)${RST}"
             [void]$buf.AppendLine("    $arrow [$check] $(PadR $lbl 28) $path          ")
         }
         [void]$buf.AppendLine()
@@ -886,9 +912,9 @@ function Show-UserPicker {
     while (-not $done) {
         $k = [Console]::ReadKey($true)
         switch ($k.Key) {
-            'UpArrow'   { $script:ulIdx = ($script:ulIdx - 1 + $script:ulProfiles.Count) % $script:ulProfiles.Count }
+            'UpArrow' { $script:ulIdx = ($script:ulIdx - 1 + $script:ulProfiles.Count) % $script:ulProfiles.Count }
             'DownArrow' { $script:ulIdx = ($script:ulIdx + 1) % $script:ulProfiles.Count }
-            'Enter'     { $done = $true; continue }
+            'Enter' { $done = $true; continue }
             default {
                 switch ($k.KeyChar) {
                     't' { $script:ulProfiles[$script:ulIdx].Selected = -not $script:ulProfiles[$script:ulIdx].Selected }
@@ -907,7 +933,8 @@ function Show-UserPicker {
     Write-Host ""
     if ($excluded.Count -eq 0) {
         Write-Host "    ${cG}$([char]0x2713)${RST} ${cW}All $total users selected${RST}"
-    } else {
+    }
+    else {
         Write-Host "    ${cG}$([char]0x2713)${RST} ${cW}$($selected.Count) of $total users selected${RST}"
     }
 
@@ -930,13 +957,14 @@ function Step-Setup {
         Write-Host ""
 
         $defFolder = if ($cfg) { $cfg.Folder } else { 'C:\MigrationStore' }
-        $defShare  = if ($cfg) { $cfg.Share } else { 'MigrationShare$' }
-        $defIP     = if ($cfg) { $cfg.SourceIP } else { '' }
+        $defShare = if ($cfg) { $cfg.Share } else { 'MigrationShare$' }
+        $defIP = if ($cfg) { $cfg.SourceIP } else { '' }
         $folder = Prompt-Text 'Migration folder path' -Default $defFolder
         $parentDir = Split-Path $folder -Parent
         if ($parentDir -and -not (Test-Path $parentDir -ErrorAction SilentlyContinue)) {
             Write-Host "    ${cY}$([char]0x26A0) Parent directory '$parentDir' does not exist (will be created)${RST}"
-        } elseif (Test-Path $folder -ErrorAction SilentlyContinue) {
+        }
+        elseif (Test-Path $folder -ErrorAction SilentlyContinue) {
             Write-Host "    ${cG}$([char]0x2713)${RST} ${cGR}Folder already exists${RST}"
         }
 
@@ -969,14 +997,15 @@ function Step-Setup {
                 if ($freeGB -lt 5) {
                     Write-Host "    ${cY}$([char]0x26A0) Less than 5 GB free${RST}"
                 }
-            } catch {}
+            }
+            catch {}
         }
 
         $fields = [ordered]@{
             'Migration folder'  = $folder
             'Share name'        = $share
-            'Source IP filter'  = if($srcIP){$srcIP}else{'Any'}
-            'Skip USMT install' = if($skipUSMT){'Yes'}else{'No'}
+            'Source IP filter'  = if ($srcIP) { $srcIP }else { 'Any' }
+            'Skip USMT install' = if ($skipUSMT) { 'Yes' }else { 'No' }
         }
         Show-Summary $fields
 
@@ -987,19 +1016,19 @@ function Step-Setup {
         $k = WaitKey; HideCur
         switch ($k.KeyChar) {
             'r' { Write-Host 'Reconfigure'; continue setupLoop }
-            's' { Write-Host 'Save'; Save-RunConfig 'setup' @{ Folder=$folder; Share=$share; SourceIP=$srcIP; SkipUSMT=$skipUSMT; USMTPath=$usmtPath }; continue setupLoop }
+            's' { Write-Host 'Save'; Save-RunConfig 'setup' @{ Folder = $folder; Share = $share; SourceIP = $srcIP; SkipUSMT = $skipUSMT; USMTPath = $usmtPath }; continue setupLoop }
             'y' { Write-Host 'Start'; break setupLoop }
             default { Write-Host 'Cancel'; return }
         }
     }
 
     $p = "-MigrationFolder '$($folder -replace "'","''")' -ShareName '$($share -replace "'","''")' -NonInteractive"
-    if ($srcIP)    { $p += " -AllowedSourceIP '$($srcIP -replace "'","''")'" }
+    if ($srcIP) { $p += " -AllowedSourceIP '$($srcIP -replace "'","''")'" }
     if ($skipUSMT) { $p += ' -SkipUSMTInstall' }
     if ($usmtPath) { $p += " -USMTPath '$($usmtPath -replace "'","''")'" }
 
     $ok = Invoke-Step 'Setting up destination' 'destination-setup.ps1' $p
-    Show-ResultBanner $ok $(if($ok){'Destination setup complete!'}else{'Setup encountered errors'})
+    Show-ResultBanner $ok $(if ($ok) { 'Destination setup complete!' }else { 'Setup encountered errors' })
     if ($ok) { $script:Done['Setup'] = $true }
     Wait-AnyKey
 }
@@ -1019,17 +1048,20 @@ function Test-ShareWrite([string]$Path, [string]$User, [string]$Pass) {
                 '' | Set-Content "${drv}:\$([System.IO.Path]::GetFileName($probe))" -ErrorAction Stop
                 Remove-Item "${drv}:\$([System.IO.Path]::GetFileName($probe))" -Force -ErrorAction SilentlyContinue
                 return [pscustomobject]@{ OK = $true; Detail = 'Authenticated and writable' }
-            } finally {
+            }
+            finally {
                 Remove-PSDrive $drv -Force -ErrorAction SilentlyContinue
             }
-        } else {
+        }
+        else {
             '' | Set-Content $probe -ErrorAction Stop
             Remove-Item $probe -Force -ErrorAction SilentlyContinue
             return [pscustomobject]@{ OK = $true; Detail = 'Share is writable' }
         }
-    } catch {
-        $msg = "$_" -replace '\r?\n',' '
-        if ($msg.Length -gt 80) { $msg = $msg.Substring(0,77) + '...' }
+    }
+    catch {
+        $msg = "$_" -replace '\r?\n', ' '
+        if ($msg.Length -gt 80) { $msg = $msg.Substring(0, 77) + '...' }
         return [pscustomobject]@{ OK = $false; Detail = $msg }
     }
 }
@@ -1057,11 +1089,13 @@ function Step-Capture {
         $writeTest = Test-ShareWrite $dest $user $pass
         if ($writeTest.OK) {
             Write-Host "`r    ${cG}$([char]0x2713)${RST} ${cW}$($writeTest.Detail)${RST}                              "
-        } else {
+        }
+        else {
             Write-Host "`r    ${cR}$([char]0x2717)${RST} ${cR}$($writeTest.Detail)${RST}"
             if ($user) {
                 Write-Host "    ${cGR}  Check username/password and share permissions${RST}"
-            } else {
+            }
+            else {
                 Write-Host "    ${cGR}  Check share permissions or provide credentials${RST}"
             }
             Write-Host ""
@@ -1078,13 +1112,13 @@ function Step-Capture {
         # ── Options ──
         Write-Host ""
         Write-Host "    ${BLD}${cW}Options${RST}"
-        $extra   = Prompt-Toggle 'Include extra data? (Sticky Notes, taskbar pins, power plans)'
+        $extra = Prompt-Toggle 'Include extra data? (Sticky Notes, taskbar pins, power plans)'
         $encrypt = Prompt-Toggle 'Encrypt migration store?'
-        $encKey  = ''
+        $encKey = ''
         if ($encrypt) {
             $encKey = Prompt-Text 'Encryption key (password)' -Required
         }
-        $dryRun   = Prompt-Toggle 'Dry run? (preview only, no actual capture)'
+        $dryRun = Prompt-Toggle 'Dry run? (preview only, no actual capture)'
         $skipUSMT = Prompt-Toggle 'Skip USMT install? (if already installed)'
 
         # ── USMT pre-check ──
@@ -1101,13 +1135,13 @@ function Step-Capture {
         # ── Summary + review ──
         $fields = [ordered]@{
             'Destination share' = $dest
-            'Credentials'       = if($user){"$user / ****"}else{'Current session'}
-            'Write access'      = if($writeTest.OK){'Verified'}else{'NOT VERIFIED'}
-            'Extra data'        = if($extra){'Yes'}else{'No'}
-            'Encryption'        = if($encrypt){'Yes'}else{'No'}
-            'Dry run'           = if($dryRun){'Yes'}else{'No'}
-            'Include users'     = if($incUsers){$incUsers}else{'All'}
-            'Exclude users'     = if($excUsers){$excUsers}else{'None'}
+            'Credentials'       = if ($user) { "$user / ****" }else { 'Current session' }
+            'Write access'      = if ($writeTest.OK) { 'Verified' }else { 'NOT VERIFIED' }
+            'Extra data'        = if ($extra) { 'Yes' }else { 'No' }
+            'Encryption'        = if ($encrypt) { 'Yes' }else { 'No' }
+            'Dry run'           = if ($dryRun) { 'Yes' }else { 'No' }
+            'Include users'     = if ($incUsers) { $incUsers }else { 'All' }
+            'Exclude users'     = if ($excUsers) { $excUsers }else { 'None' }
         }
         Show-Summary $fields
 
@@ -1117,19 +1151,19 @@ function Step-Capture {
         ShowCur; $k = WaitKey; HideCur
         switch ($k.KeyChar) {
             'r' { Write-Host 'Reconfigure'; continue captureLoop }
-            's' { Write-Host 'Save'; Save-RunConfig 'capture' @{ Dest=$dest; User=$user; Extra=[bool]$extra; Encrypt=[bool]$encrypt; DryRun=[bool]$dryRun; SkipUSMT=[bool]$skipUSMT; USMTPath=$usmtPath; IncUsers=$incUsers; ExcUsers=$excUsers }; continue captureLoop }
+            's' { Write-Host 'Save'; Save-RunConfig 'capture' @{ Dest = $dest; User = $user; Extra = [bool]$extra; Encrypt = [bool]$encrypt; DryRun = [bool]$dryRun; SkipUSMT = [bool]$skipUSMT; USMTPath = $usmtPath; IncUsers = $incUsers; ExcUsers = $excUsers }; continue captureLoop }
             'y' { Write-Host 'Start'; break captureLoop }
             default { Write-Host 'Cancel'; return }
         }
     }
 
     $p = "-DestinationShare '$($dest -replace "'","''")' -NonInteractive"
-    if ($user)     { $p += " -ShareUsername '$($user -replace "'","''")'" }
-    if ($pass)     { $p += " -SharePassword '$($pass -replace "'","''")'" }
-    if ($extra)    { $p += ' -ExtraData' }
-    if ($encrypt)  { $p += ' -EncryptStore' }
-    if ($encKey)   { $p += " -EncryptionKey '$($encKey -replace "'","''")'" }
-    if ($dryRun)   { $p += ' -DryRun' }
+    if ($user) { $p += " -ShareUsername '$($user -replace "'","''")'" }
+    if ($pass) { $p += " -SharePassword '$($pass -replace "'","''")'" }
+    if ($extra) { $p += ' -ExtraData' }
+    if ($encrypt) { $p += ' -EncryptStore' }
+    if ($encKey) { $p += " -EncryptionKey '$($encKey -replace "'","''")'" }
+    if ($dryRun) { $p += ' -DryRun' }
     if ($skipUSMT) { $p += ' -SkipUSMTInstall' }
     if ($usmtPath) { $p += " -USMTPath '$($usmtPath -replace "'","''")'" }
     if ($incUsers) {
@@ -1141,9 +1175,9 @@ function Step-Capture {
         $p += " -ExcludeUsers $($vals -join ',')"
     }
 
-    $label = if($dryRun){'Capturing Source (Dry Run)'}else{'Capturing Source'}
+    $label = if ($dryRun) { 'Capturing Source (Dry Run)' }else { 'Capturing Source' }
     $ok = Invoke-Step $label 'source-capture.ps1' $p
-    Show-ResultBanner $ok $(if($ok){'Source capture complete!'}else{'Capture encountered errors'})
+    Show-ResultBanner $ok $(if ($ok) { 'Source capture complete!' }else { 'Capture encountered errors' })
     if ($ok) { $script:Done['Capture'] = $true }
     Wait-AnyKey
 }
@@ -1164,11 +1198,13 @@ function Step-Restore {
         if (Test-Path $folder -ErrorAction SilentlyContinue) {
             if (Test-Path $usmtStore -ErrorAction SilentlyContinue) {
                 Write-Host "    ${cG}$([char]0x2713)${RST} ${cW}Migration data found in $folder${RST}"
-            } else {
+            }
+            else {
                 Write-Host "    ${cY}$([char]0x26A0) Folder exists but no USMT store found yet${RST}"
                 Write-Host "    ${cGR}  (Capture may still be in progress or used a different path)${RST}"
             }
-        } else {
+        }
+        else {
             Write-Host "    ${cR}$([char]0x2717) Folder '$folder' does not exist${RST}"
         }
 
@@ -1188,7 +1224,7 @@ function Step-Restore {
 
     $p = "-MigrationFolder '$($folder -replace "'","''")' -RestoreOnly -NonInteractive"
     $ok = Invoke-Step 'Restoring user state' 'destination-setup.ps1' $p
-    Show-ResultBanner $ok $(if($ok){'Restore complete!'}else{'Restore encountered errors'})
+    Show-ResultBanner $ok $(if ($ok) { 'Restore complete!' }else { 'Restore encountered errors' })
     if ($ok) { $script:Done['Restore'] = $true }
     Wait-AnyKey
 }
@@ -1208,9 +1244,11 @@ function Step-Verify {
         $preScan = Join-Path $folder 'PreScanData'
         if (Test-Path $preScan -ErrorAction SilentlyContinue) {
             Write-Host "    ${cG}$([char]0x2713)${RST} ${cW}Pre-scan data found${RST}"
-        } elseif (-not (Test-Path $folder -ErrorAction SilentlyContinue)) {
+        }
+        elseif (-not (Test-Path $folder -ErrorAction SilentlyContinue)) {
             Write-Host "    ${cR}$([char]0x2717) Folder '$folder' does not exist${RST}"
-        } else {
+        }
+        else {
             Write-Host "    ${cY}$([char]0x26A0) No pre-scan data found (verification may be limited)${RST}"
         }
 
@@ -1230,7 +1268,7 @@ function Step-Verify {
 
     $p = "-MigrationFolder '$($folder -replace "'","''")'"
     $ok = Invoke-Step 'Verifying migration' 'post-migration-verify.ps1' $p
-    Show-ResultBanner $ok $(if($ok){'Verification complete!'}else{'Verification encountered errors'})
+    Show-ResultBanner $ok $(if ($ok) { 'Verification complete!' }else { 'Verification encountered errors' })
     if ($ok) { $script:Done['Verify'] = $true }
     Wait-AnyKey
 }
@@ -1251,7 +1289,8 @@ function Step-Cleanup {
             $size = (Get-ChildItem $folder -Recurse -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum
             $sizeMB = [Math]::Round($size / 1MB, 1)
             Write-Host "    ${cY}$([char]0x26A0) Will delete: $folder ($sizeMB MB)${RST}"
-        } else {
+        }
+        else {
             Write-Host "    ${cGR}Folder does not exist (firewall rules and share will still be removed)${RST}"
         }
 
@@ -1275,7 +1314,7 @@ function Step-Cleanup {
 
     $p = "-MigrationFolder '$($folder -replace "'","''")' -Cleanup -NonInteractive"
     $ok = Invoke-Step 'Cleaning up' 'destination-setup.ps1' $p
-    Show-ResultBanner $ok $(if($ok){'Cleanup complete!'}else{'Cleanup encountered errors'})
+    Show-ResultBanner $ok $(if ($ok) { 'Cleanup complete!' }else { 'Cleanup encountered errors' })
     if ($ok) { $script:Done['Cleanup'] = $true }
     Wait-AnyKey
 }
@@ -1289,10 +1328,10 @@ function Show-Intro {
 
     # Phase 1 — centered spinner
     $cRow = [Math]::Floor([Console]::WindowHeight / 2)
-    $cCol = [Math]::Floor([Console]::WindowWidth  / 2)
+    $cCol = [Math]::Floor([Console]::WindowWidth / 2)
     for ($i = 0; $i -lt 10; $i++) {
         $s = $Spin[$i % $Spin.Count]
-        [Console]::SetCursorPosition([Math]::Max(0,$cCol - 1), [Math]::Max(0,$cRow))
+        [Console]::SetCursorPosition([Math]::Max(0, $cCol - 1), [Math]::Max(0, $cRow))
         [Console]::Write("${cC}$s${RST}")
         Start-Sleep -Milliseconds 55
     }
@@ -1319,7 +1358,7 @@ function Show-Intro {
     }
 
     # Lightning bolts
-    [Console]::SetCursorPosition([Math]::Max(0,$startCol - 3), $topRow + 1)
+    [Console]::SetCursorPosition([Math]::Max(0, $startCol - 3), $topRow + 1)
     [Console]::Write("${BLD}${cY}$([char]0x26A1)${RST}")
     [Console]::SetCursorPosition($startCol + $title.Length + 2, $topRow + 1)
     [Console]::Write("${BLD}${cY}$([char]0x26A1)${RST}")
@@ -1347,10 +1386,10 @@ function Main {
         $action = Read-MenuChoice
 
         switch ($action) {
-            'Setup'   { Step-Setup }
+            'Setup' { Step-Setup }
             'Capture' { Step-Capture }
             'Restore' { Step-Restore }
-            'Verify'  { Step-Verify }
+            'Verify' { Step-Verify }
             'Cleanup' { Step-Cleanup }
             'Quit' {
                 [Console]::Write("$E[2J$E[H")
@@ -1370,12 +1409,14 @@ function Main {
 
 try {
     Main
-} catch {
+}
+catch {
     ShowCur
     Write-Host ""
     Write-Host "  ${cR}Unexpected error: $_${RST}" -ForegroundColor Red
     Write-Host ""
-} finally {
+}
+finally {
     ShowCur
     $host.UI.RawUI.WindowTitle = 'PowerShell'
     # Restore normal sleep/screen-off behavior

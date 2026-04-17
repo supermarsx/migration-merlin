@@ -102,12 +102,15 @@ function Test-EncryptionKeyStrength {
     if ($Key -is [System.Security.SecureString]) {
         try {
             $plain = [System.Net.NetworkCredential]::new('', $Key).Password
-        } catch {
+        }
+        catch {
             return $false
         }
-    } elseif ($Key -is [string]) {
+    }
+    elseif ($Key -is [string]) {
         $plain = $Key
-    } else {
+    }
+    else {
         return $false
     }
 

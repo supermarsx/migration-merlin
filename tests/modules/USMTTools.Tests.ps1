@@ -24,8 +24,8 @@ Describe 'Find-USMT' {
 
     It 'returns the arch-specific directory when scanstate.exe is present' {
         $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' }
-                elseif ([Environment]::Is64BitOperatingSystem) { 'amd64' }
-                else { 'x86' }
+        elseif ([Environment]::Is64BitOperatingSystem) { 'amd64' }
+        else { 'x86' }
         $base = Join-Path $script:TestRoot 'USMT-Tools'
         $archDir = Join-Path $base $arch
         New-Item -Path $archDir -ItemType Directory -Force | Out-Null
@@ -78,8 +78,8 @@ Describe 'Find-USMT' {
 
     It 'supports a custom -ExeName (loadstate.exe)' {
         $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' }
-                elseif ([Environment]::Is64BitOperatingSystem) { 'amd64' }
-                else { 'x86' }
+        elseif ([Environment]::Is64BitOperatingSystem) { 'amd64' }
+        else { 'x86' }
         $base = Join-Path $script:TestRoot 'USMT-Tools'
         $archDir = Join-Path $base $arch
         New-Item -Path $archDir -ItemType Directory -Force | Out-Null
@@ -121,8 +121,8 @@ Describe 'Expand-BundledUSMT' {
 
     It 'returns the arch directory when the zip extracts successfully (mocked Expand-Archive)' {
         $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' }
-                elseif ([Environment]::Is64BitOperatingSystem) { 'amd64' }
-                else { 'x86' }
+        elseif ([Environment]::Is64BitOperatingSystem) { 'amd64' }
+        else { 'x86' }
 
         # Put a dummy zip file in an additional search path.
         $zipDir = Join-Path $script:TestRoot 'ZipHere'
@@ -160,8 +160,8 @@ Describe 'Expand-BundledUSMT' {
 
     It 'short-circuits when the target already contains the executable' {
         $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' }
-                elseif ([Environment]::Is64BitOperatingSystem) { 'amd64' }
-                else { 'x86' }
+        elseif ([Environment]::Is64BitOperatingSystem) { 'amd64' }
+        else { 'x86' }
         $zipDir = Join-Path $script:TestRoot 'ZipHere'
         New-Item -Path $zipDir -ItemType Directory -Force | Out-Null
         $zipPath = Join-Path $zipDir 'user-state-migration-tool.zip'
@@ -193,14 +193,14 @@ Describe 'Install-USMTOnline' {
     It 'tries every download method when each one fails, then returns $null' {
         InModuleScope USMTTools {
             Mock _Write-UsmtLog {}
-            Mock Invoke-WebRequest   { throw 'iwr fail' }
-            Mock Start-BitsTransfer  { throw 'bits fail' }
+            Mock Invoke-WebRequest { throw 'iwr fail' }
+            Mock Start-BitsTransfer { throw 'bits fail' }
             # Force the WebClient path to fail.
             Mock New-Object {
                 param($TypeName)
                 if ($TypeName -eq 'System.Net.WebClient') {
                     $obj = [pscustomobject]@{ Headers = @{} ; UseDefaultCredentials = $false }
-                    $obj | Add-Member -MemberType ScriptMethod -Name DownloadFile -Value { param($u,$p) throw 'wc fail' } -PassThru |
+                    $obj | Add-Member -MemberType ScriptMethod -Name DownloadFile -Value { param($u, $p) throw 'wc fail' } -PassThru |
                         Add-Member -MemberType ScriptMethod -Name Dispose -Value {} -PassThru
                     return $obj
                 }
@@ -226,7 +226,7 @@ Describe 'Install-USMTOnline' {
                 $bytes = New-Object byte[] (60KB)
                 [System.IO.File]::WriteAllBytes($OutFile, $bytes)
             }
-            Mock Start-BitsTransfer  { throw 'should not be called' }
+            Mock Start-BitsTransfer { throw 'should not be called' }
             Mock Start-TrackedProcess {
                 [pscustomobject]@{
                     HasExited = $true

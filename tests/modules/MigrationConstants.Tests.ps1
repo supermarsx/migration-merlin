@@ -40,7 +40,7 @@ Describe 'MigrationConstants module import' {
 
 Describe 'MigrationConstants top-level keys' {
     It 'contains the expected top-level sections' {
-        foreach ($section in 'USMT','ADK','Defaults','UI','Logging') {
+        foreach ($section in 'USMT', 'ADK', 'Defaults', 'UI', 'Logging') {
             $script:MC.ContainsKey($section) | Should -BeTrue -Because "missing section: $section"
         }
     }
@@ -49,7 +49,7 @@ Describe 'MigrationConstants top-level keys' {
 Describe 'USMT constants' {
     It 'USMT.SearchPaths is a string array' {
         $paths = $script:MC['USMT']['SearchPaths']
-        ,$paths | Should -BeOfType [string[]]
+        , $paths | Should -BeOfType [string[]]
         $paths.Count | Should -BeGreaterThan 0
     }
 
@@ -129,7 +129,7 @@ Describe 'UI constants' {
 
     It 'UI.StatusIcons contains OK/WARN/FAIL/INFO entries' {
         $icons = $script:MC['UI']['StatusIcons']
-        foreach ($k in 'OK','WARN','FAIL','INFO') {
+        foreach ($k in 'OK', 'WARN', 'FAIL', 'INFO') {
             $icons.ContainsKey($k) | Should -BeTrue -Because "StatusIcons missing: $k"
         }
         $icons['OK']   | Should -Be '[+]'
@@ -140,7 +140,7 @@ Describe 'UI constants' {
 
     It 'UI.StatusColors contains OK/WARN/FAIL/INFO entries' {
         $colors = $script:MC['UI']['StatusColors']
-        foreach ($k in 'OK','WARN','FAIL','INFO') {
+        foreach ($k in 'OK', 'WARN', 'FAIL', 'INFO') {
             $colors.ContainsKey($k) | Should -BeTrue -Because "StatusColors missing: $k"
         }
         $colors['OK']   | Should -Be 'Green'

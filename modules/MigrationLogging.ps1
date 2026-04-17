@@ -30,12 +30,14 @@ function Initialize-Logging {
     $primaryDir = Split-Path $PrimaryLogFile -Parent
     if (Initialize-LogPath $primaryDir) {
         $script:_LogFile = $PrimaryLogFile
-    } else {
+    }
+    else {
         # Fallback 1: TEMP folder
         $fallback1 = Join-Path $env:TEMP "MigrationMerlin"
         if (Initialize-LogPath $fallback1) {
             $script:_LogFile = Join-Path $fallback1 "$ScriptName.log"
-        } else {
+        }
+        else {
             # Fallback 2: User profile
             $fallback2 = Join-Path $env:USERPROFILE "MigrationMerlin-Logs"
             if (Initialize-LogPath $fallback2) {
@@ -67,7 +69,8 @@ function Initialize-Logging {
         $transcriptPath = Join-Path $transcriptDir "$ScriptName-transcript-$(Get-Date -Format 'yyyyMMdd-HHmmss').log"
         Start-Transcript -Path $transcriptPath -Append -ErrorAction SilentlyContinue | Out-Null
         $script:_TranscriptStarted = $true
-    } catch {
+    }
+    catch {
         # Transcript is best-effort - don't fail if it can't start
     }
 
@@ -85,7 +88,8 @@ function Initialize-LogPath {
         [System.IO.File]::WriteAllText($testFile, "test")
         Remove-Item $testFile -Force -ErrorAction SilentlyContinue
         return $true
-    } catch {
+    }
+    catch {
         return $false
     }
 }
@@ -103,7 +107,7 @@ function Write-Log {
     <# Writes a timestamped entry to the log file. Handles its own errors. #>
     param(
         [string]$Message,
-        [ValidateSet("INFO","WARN","ERROR","FATAL","DEBUG")]
+        [ValidateSet("INFO", "WARN", "ERROR", "FATAL", "DEBUG")]
         [string]$Level = "INFO"
     )
 
@@ -115,7 +119,8 @@ function Write-Log {
         try {
             $entry | Out-File -Append -FilePath $script:_LogFile -Encoding UTF8 -ErrorAction Stop
             return
-        } catch {
+        }
+        catch {
             # Primary log failed - try fallback
             $fallbackLog = Join-Path $env:TEMP "migration-fallback.log"
             try {
@@ -123,12 +128,14 @@ function Write-Log {
                 # Also log that primary failed
                 "[$timestamp] [WARN] Primary log write failed ($($script:_LogFile)): $_" |
                     Out-File -Append -FilePath $fallbackLog -Encoding UTF8 -ErrorAction SilentlyContinue
-            } catch {
+            }
+            catch {
                 # Both failed - write to event log as last resort
                 try {
                     Write-EventLog -LogName Application -Source "MigrationMerlin" `
                         -EventId 1000 -EntryType Warning -Message $entry -ErrorAction SilentlyContinue
-                } catch {}
+                }
+                catch {}
             }
         }
     }
@@ -139,7 +146,8 @@ function Write-Log {
             $logDir = Split-Path $LogFile -Parent
             if (-not (Test-Path $logDir)) { New-Item $logDir -ItemType Directory -Force -ErrorAction Stop | Out-Null }
             $entry | Out-File -Append -FilePath $LogFile -Encoding UTF8 -ErrorAction Stop
-        } catch {}
+        }
+        catch {}
     }
 }
 
@@ -162,10 +170,10 @@ function Format-SafeParamsValue {
     # Internal helper for Format-SafeParams. Recursively masks a single value.
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory=$true)] $Value,
-        [Parameter(Mandatory=$true)] [int]$CurrentDepth,
-        [Parameter(Mandatory=$true)] [int]$MaxDepth,
-        [Parameter(Mandatory=$true)] [string]$KeyRegex
+        [Parameter(Mandatory = $true)] $Value,
+        [Parameter(Mandatory = $true)] [int]$CurrentDepth,
+        [Parameter(Mandatory = $true)] [int]$MaxDepth,
+        [Parameter(Mandatory = $true)] [string]$KeyRegex
     )
 
     if ($null -eq $Value) { return $null }
@@ -187,11 +195,12 @@ function Format-SafeParamsValue {
             $v = $Value[$k]
             if ($k -match $KeyRegex) {
                 $nested[$k] = '***'
-            } else {
+            }
+            else {
                 $nested[$k] = Format-SafeParamsValue -Value $v -CurrentDepth ($CurrentDepth + 1) -MaxDepth $MaxDepth -KeyRegex $KeyRegex
             }
         }
-        return ,$nested
+        return , $nested
     }
 
     # Recurse into PSCustomObjects by reading their NoteProperty set.
@@ -203,11 +212,12 @@ function Format-SafeParamsValue {
             foreach ($p in $Value.PSObject.Properties) {
                 if ($p.Name -match $KeyRegex) {
                     $nested[$p.Name] = '***'
-                } else {
+                }
+                else {
                     $nested[$p.Name] = Format-SafeParamsValue -Value $p.Value -CurrentDepth ($CurrentDepth + 1) -MaxDepth $MaxDepth -KeyRegex $KeyRegex
                 }
             }
-            return ,$nested
+            return , $nested
         }
     }
 
@@ -218,11 +228,11 @@ function Format-SafeParams {
     [CmdletBinding()]
     [OutputType([string])]
     param(
-        [Parameter(Mandatory=$true, ValueFromPipeline=$true)]
+        [Parameter(Mandatory = $true, ValueFromPipeline = $true)]
         [System.Collections.IDictionary]$Parameters,
 
         [Parameter()]
-        [string[]]$SensitivePatterns = @('Password','Secret','Token','Key','Credential','Passphrase','ApiKey'),
+        [string[]]$SensitivePatterns = @('Password', 'Secret', 'Token', 'Key', 'Credential', 'Passphrase', 'ApiKey'),
 
         [Parameter()]
         [int]$Depth = 2,
@@ -242,13 +252,14 @@ function Format-SafeParams {
             $val = $Parameters[$key]
             if ($key -match $regex) {
                 $clone[$key] = '***'
-            } else {
+            }
+            else {
                 $clone[$key] = Format-SafeParamsValue -Value $val -CurrentDepth 1 -MaxDepth $Depth -KeyRegex $regex
             }
         }
 
         if ($AsObject) {
-            return ,$clone
+            return , $clone
         }
         return ($clone | ConvertTo-Json -Compress -Depth $Depth)
     }
@@ -297,7 +308,8 @@ function Invoke-WithRetry {
                 if (-not $LogOnly) { Show-Status $msg "OK" }
             }
             return $result
-        } catch {
+        }
+        catch {
             $lastError = $_
             Write-Log "$OperationName failed (attempt $attempt/$MaxRetries): $_" "WARN"
             if (-not $LogOnly) {
@@ -334,7 +346,8 @@ function Invoke-SafeCommand {
     try {
         if ($SuppressStderr) {
             $output = & $Command @Arguments 2>$null
-        } else {
+        }
+        else {
             $output = & $Command @Arguments 2>&1
         }
         $exitCode = $LASTEXITCODE
@@ -345,7 +358,8 @@ function Invoke-SafeCommand {
         }
 
         return @{ Success = $true; ExitCode = $exitCode; Output = $output }
-    } catch {
+    }
+    catch {
         Write-Log "$OperationName threw exception: $_" "ERROR"
         return @{ Success = $false; ExitCode = -1; Output = $_.Exception.Message }
     }
@@ -370,7 +384,8 @@ function Try-CimInstance {
         if ($Filter) { $params.Filter = $Filter }
         $result = Get-CimInstance @params
         return $result
-    } catch {
+    }
+    catch {
         Write-Log "Get-CimInstance $ClassName failed: $_. Trying Get-WmiObject fallback..." "WARN"
     }
 
@@ -381,7 +396,8 @@ function Try-CimInstance {
         $result = Get-WmiObject @params
         Write-Log "Get-WmiObject $ClassName fallback succeeded" "INFO"
         return $result
-    } catch {
+    }
+    catch {
         Write-Log "Both CIM and WMI failed for $FriendlyName : $_" "ERROR"
         Show-Status "Failed to query $FriendlyName : $_" "FAIL"
         return $null
@@ -415,7 +431,8 @@ function Copy-ItemSafe {
             Copy-Item @copyParams
         }
         return $true
-    } catch {
+    }
+    catch {
         Write-Log "Copy failed ($Description): $_" "ERROR"
         return $false
     }
@@ -429,7 +446,8 @@ function Test-WritablePath {
         [System.IO.File]::WriteAllText($testFile, "test")
         Remove-Item $testFile -Force -ErrorAction SilentlyContinue
         return $true
-    } catch {
+    }
+    catch {
         return $false
     }
 }

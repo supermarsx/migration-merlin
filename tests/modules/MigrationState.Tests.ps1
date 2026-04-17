@@ -22,8 +22,8 @@ Describe 'MigrationState module load' {
         $mod | Should -Not -BeNullOrEmpty
 
         $exported = $mod.ExportedFunctions.Keys
-        'New-MigrationState','Step-MigrationState',
-        'Get-MigrationStateProgress','Get-MigrationStateElapsed' | ForEach-Object {
+        'New-MigrationState', 'Step-MigrationState',
+        'Get-MigrationStateProgress', 'Get-MigrationStateElapsed' | ForEach-Object {
             $exported | Should -Contain $_
         }
     }
@@ -33,7 +33,7 @@ Describe 'New-MigrationState' {
     It 'returns a hashtable-like object with all 6 expected keys' {
         $s = New-MigrationState
         $keys = @($s.Keys)
-        'TotalSteps','CurrentStep','StartTime','USMTDir','MappedDrive','ShareConnected' |
+        'TotalSteps', 'CurrentStep', 'StartTime', 'USMTDir', 'MappedDrive', 'ShareConnected' |
             ForEach-Object { $keys | Should -Contain $_ }
         $keys.Count | Should -Be 6
     }

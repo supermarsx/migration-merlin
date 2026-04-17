@@ -29,10 +29,10 @@
 # peer executor t1-e1 has published it by the time this module loads.
 # ---------------------------------------------------------------------------
 $script:UIConstants = @{
-    BannerWidth     = 56
-    StepBarLen      = 30
-    ProgressBarLen  = 35
-    Divider         = 50
+    BannerWidth    = 56
+    StepBarLen     = 30
+    ProgressBarLen = 35
+    Divider        = 50
 }
 
 try {
@@ -41,14 +41,15 @@ try {
         Import-Module $constantsPath -Force -ErrorAction Stop
         if ((Get-Variable -Name MigrationConstants -Scope Global -ErrorAction SilentlyContinue) -and
             $Global:MigrationConstants.UI) {
-            foreach ($k in 'BannerWidth','StepBarLen','ProgressBarLen','Divider') {
+            foreach ($k in 'BannerWidth', 'StepBarLen', 'ProgressBarLen', 'Divider') {
                 if ($Global:MigrationConstants.UI.ContainsKey($k)) {
                     $script:UIConstants[$k] = $Global:MigrationConstants.UI[$k]
                 }
             }
         }
     }
-} catch {
+}
+catch {
     # Soft failure — keep local defaults.
 }
 
@@ -93,7 +94,8 @@ function Get-MigrationUIGlyphs {
             CheckMark = [char]0x2713   # Check mark
             Cross     = [char]0x2717   # Ballot X
         }
-    } else {
+    }
+    else {
         return @{
             BarFilled = '#'
             BarEmpty  = '-'
@@ -125,7 +127,7 @@ function Set-MigrationUIState {
         [Parameter(Mandatory)]
         [hashtable]$State
     )
-    foreach ($k in 'CurrentStep','TotalSteps','StartTime') {
+    foreach ($k in 'CurrentStep', 'TotalSteps', 'StartTime') {
         if ($State.ContainsKey($k)) {
             $script:UIState[$k] = $State[$k]
         }
@@ -160,18 +162,18 @@ function Resolve-UIState {
     )
 
     $resolved = @{ CurrentStep = 0; TotalSteps = 0; StartTime = $null }
-    $source   = 'default'
+    $source = 'default'
 
     if ($State) {
-        foreach ($k in 'CurrentStep','TotalSteps','StartTime') {
+        foreach ($k in 'CurrentStep', 'TotalSteps', 'StartTime') {
             if ($State.ContainsKey($k)) { $resolved[$k] = $State[$k] }
         }
         $source = 'param'
     }
     elseif ($script:UIState.TotalSteps -gt 0 -or $script:UIState.StartTime) {
         $resolved.CurrentStep = $script:UIState.CurrentStep
-        $resolved.TotalSteps  = $script:UIState.TotalSteps
-        $resolved.StartTime   = $script:UIState.StartTime
+        $resolved.TotalSteps = $script:UIState.TotalSteps
+        $resolved.StartTime = $script:UIState.StartTime
         $source = 'module'
     }
     else {
@@ -201,8 +203,8 @@ function Resolve-UIState {
                 $vars = $callerFrame.GetFrameVariables()
                 $cs = $vars['CurrentStep']; $ts = $vars['TotalSteps']; $st = $vars['StartTime']
                 if ($cs) { $resolved.CurrentStep = [int]$cs.Value; $found = $true }
-                if ($ts) { $resolved.TotalSteps  = [int]$ts.Value; $found = $true }
-                if ($st) { $resolved.StartTime   = $st.Value;      $found = $true }
+                if ($ts) { $resolved.TotalSteps = [int]$ts.Value; $found = $true }
+                if ($st) { $resolved.StartTime = $st.Value; $found = $true }
                 if ($found) {
                     $source = 'caller-frame'
                     $script:__UIState_CallerFrame = $callerFrame
@@ -213,11 +215,12 @@ function Resolve-UIState {
                 $gts = Get-Variable -Name 'TotalSteps'  -Scope Global -ValueOnly -ErrorAction SilentlyContinue
                 $gst = Get-Variable -Name 'StartTime'   -Scope Global -ValueOnly -ErrorAction SilentlyContinue
                 if ($null -ne $gcs) { $resolved.CurrentStep = [int]$gcs; $found = $true }
-                if ($null -ne $gts) { $resolved.TotalSteps  = [int]$gts; $found = $true }
-                if ($null -ne $gst) { $resolved.StartTime   = $gst;      $found = $true }
+                if ($null -ne $gts) { $resolved.TotalSteps = [int]$gts; $found = $true }
+                if ($null -ne $gst) { $resolved.StartTime = $gst; $found = $true }
                 if ($found) { $source = 'global-scope' }
             }
-        } catch {
+        }
+        catch {
             # leave defaults
         }
     }
@@ -239,12 +242,14 @@ function Resolve-UIState {
                             $vars['CurrentStep'].Value = $resolved.CurrentStep
                         }
                     }
-                } catch { }
+                }
+                catch { }
             }
             'global-scope' {
                 try {
                     Set-Variable -Name 'CurrentStep' -Scope Global -Value $resolved.CurrentStep -ErrorAction SilentlyContinue
-                } catch { }
+                }
+                catch { }
             }
         }
     }
@@ -296,13 +301,14 @@ function Show-Step {
 
     $elapsed = if ($s.StartTime) {
         ((Get-Date) - $s.StartTime).ToString('mm\:ss')
-    } else {
+    }
+    else {
         '00:00'
     }
 
     $barLen = $script:UIConstants.StepBarLen
     $filled = [math]::Floor($barLen * $current / $total)
-    $empty  = $barLen - $filled
+    $empty = $barLen - $filled
     $g = Get-MigrationUIGlyphs
     $bar = ($g.BarFilled.ToString()) * $filled + ($g.BarEmpty.ToString()) * $empty
 
@@ -322,11 +328,11 @@ function Show-Status {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)][string]$Message,
-        [ValidateSet('OK','FAIL','WARN','WAIT','INFO')]
+        [ValidateSet('OK', 'FAIL', 'WARN', 'WAIT', 'INFO')]
         [string]$Level = 'INFO'
     )
     $icon = switch ($Level) {
-        'OK'   { '[+]' }
+        'OK' { '[+]' }
         'FAIL' { '[X]' }
         'WARN' { '[!]' }
         'WAIT' { '[~]' }
@@ -334,7 +340,7 @@ function Show-Status {
         default { '[.]' }
     }
     $color = switch ($Level) {
-        'OK'   { 'Green' }
+        'OK' { 'Green' }
         'FAIL' { 'Red' }
         'WARN' { 'Yellow' }
         'WAIT' { 'DarkCyan' }
@@ -373,7 +379,7 @@ function Show-ProgressBar {
     $pct = [math]::Min(100, [math]::Round(($Current / $Total) * 100))
     $barLen = $script:UIConstants.ProgressBarLen
     $filled = [math]::Floor($barLen * $pct / 100)
-    $empty  = $barLen - $filled
+    $empty = $barLen - $filled
     $g = Get-MigrationUIGlyphs
     $bar = ($g.BarFilled.ToString()) * $filled + ($g.BarEmpty.ToString()) * $empty
     $line = "     [$bar] $pct% - $Label"

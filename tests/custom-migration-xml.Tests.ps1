@@ -497,7 +497,7 @@ Describe "Cross-component consistency" {
             Where-Object { $_.type -eq "Application" }
         foreach ($comp in $appComponents) {
             $allText = ($comp.role.rules.include.objectSet.pattern |
-                ForEach-Object { $_.'#text' }) -join "`n"
+                    ForEach-Object { $_.'#text' }) -join "`n"
             $allText | Should -Match "CSIDL_(LOCAL_)?APPDATA|CSIDL_PROFILE|CSIDL_MYDOCUMENTS"
         }
     }
@@ -506,7 +506,7 @@ Describe "Cross-component consistency" {
         $docsComp = $script:MigXml.migration.component |
             Where-Object { $_.type -eq "Documents" }
         $allText = ($docsComp.role.rules.include.objectSet.pattern |
-            ForEach-Object { $_.'#text' }) -join "`n"
+                ForEach-Object { $_.'#text' }) -join "`n"
         $allText | Should -Match "CSIDL_PROFILE"
     }
 

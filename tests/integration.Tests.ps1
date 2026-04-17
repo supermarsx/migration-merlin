@@ -325,11 +325,11 @@ Describe "Profile filtering logic" {
 # =============================================================================
 Describe "USMT exit code interpretation" {
     $testCases = @(
-        @{ Code = 0;  Expected = "Success";        IsSuccess = $true }
-        @{ Code = 61; Expected = "Partial";         IsSuccess = $true }
-        @{ Code = 71; Expected = "Cancelled";       IsSuccess = $false }
-        @{ Code = 26; Expected = "Locked files";    IsSuccess = $false }
-        @{ Code = 27; Expected = "Unknown";         IsSuccess = $false }
+        @{ Code = 0; Expected = "Success"; IsSuccess = $true }
+        @{ Code = 61; Expected = "Partial"; IsSuccess = $true }
+        @{ Code = 71; Expected = "Cancelled"; IsSuccess = $false }
+        @{ Code = 26; Expected = "Locked files"; IsSuccess = $false }
+        @{ Code = 27; Expected = "Unknown"; IsSuccess = $false }
     )
 
     It "Exit code <Code> should be treated as success=<IsSuccess>" -TestCases $testCases {
@@ -450,7 +450,7 @@ Describe "Transfer speed calculation" {
         $maxSamples = 12
         $samples = 1..20 | ForEach-Object { $_ * 1.0 }
         if ($samples.Count -gt $maxSamples) {
-            $samples = $samples[-$maxSamples..-1]
+            $samples = $samples[ - $maxSamples..-1]
         }
         $samples.Count | Should -Be $maxSamples
         $samples[0] | Should -Be 9.0  # 20-12+1 = 9th element
@@ -521,7 +521,8 @@ Describe "Scenario: Destination share unreachable" {
             if (-not (Test-Path '\\UNREACHABLE\share$' -ErrorAction Stop)) {
                 $exitCode = 2
             }
-        } catch {
+        }
+        catch {
             $exitCode = 2
         }
         $exitCode | Should -Be 2
@@ -560,7 +561,8 @@ Describe "Scenario: ScanState exit code 26 surfaces" {
                     $script:scanStateFnAvailable = $true
                 }
             }
-        } catch {
+        }
+        catch {
             $script:scanStateFnAvailable = $false
         }
     }
@@ -624,7 +626,7 @@ Describe "Scenario: Encryption key absent in non-interactive mode" {
         try {
             [Environment]::SetEnvironmentVariable($envVar, $null, 'Process')
             $nonInteractive = $true
-            $encryptStore   = $true
+            $encryptStore = $true
 
             $exitCode = 0
             try {
@@ -636,18 +638,20 @@ Describe "Scenario: Encryption key absent in non-interactive mode" {
                         }
                     }
                 }
-            } catch {
+            }
+            catch {
                 $exitCode = 3
             }
             $exitCode | Should -Be 3
-        } finally {
+        }
+        finally {
             [Environment]::SetEnvironmentVariable($envVar, $prior, 'Process')
         }
     }
 
     It "Interactive mode should prompt (not exit) when key absent" {
         $nonInteractive = $false
-        $encryptStore   = $true
+        $encryptStore = $true
         $prompted = $false
 
         # Simulate the resolver's decision: interactive => prompt
@@ -705,7 +709,7 @@ Describe "Scenario: Large-profile progress monitoring" {
     }
 
     It "growing file tail returns the last line (UI cadence feeder)" {
-        Set-Content -Path $script:progressFile -Value @('first','second','third')
+        Set-Content -Path $script:progressFile -Value @('first', 'second', 'third')
         (Get-Content $script:progressFile -Tail 1) | Should -Be 'third'
         Add-Content -Path $script:progressFile -Value 'fourth'
         (Get-Content $script:progressFile -Tail 1) | Should -Be 'fourth'
@@ -757,7 +761,7 @@ Describe "Scenario: Multi-user inclusion/exclusion" {
     }
 
     It "IncludeUsers narrows to the listed users" {
-        $include = @('alice','charlie')
+        $include = @('alice', 'charlie')
         $names = $script:mockProfiles |
             Where-Object { -not $_.Special } |
             ForEach-Object { ($_.LocalPath -split '\\')[-1] } |
@@ -779,7 +783,7 @@ Describe "Scenario: Multi-user inclusion/exclusion" {
     }
 
     It "Exclude wins when a user is in both lists" {
-        $include = @('alice','bob')
+        $include = @('alice', 'bob')
         $exclude = @('bob')
         $names = $script:mockProfiles |
             Where-Object { -not $_.Special } |

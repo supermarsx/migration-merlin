@@ -11,7 +11,7 @@ function Get-TestMigrationFolder {
     $base = Join-Path $env:TEMP "MigWiz-Tests-$(Get-Random)"
     New-Item -Path $base -ItemType Directory -Force | Out-Null
     # Pre-create subfolders the scripts expect
-    foreach ($sub in @("USMT","Logs","Backup","PreScanData")) {
+    foreach ($sub in @("USMT", "Logs", "Backup", "PreScanData")) {
         New-Item -Path (Join-Path $base $sub) -ItemType Directory -Force | Out-Null
     }
     return $base
@@ -29,12 +29,12 @@ function New-FakeUSMTDir {
     param([string]$BasePath)
     $usmtDir = Join-Path $BasePath "USMT-Tools\amd64"
     New-Item -Path $usmtDir -ItemType Directory -Force | Out-Null
-    foreach ($exe in @("scanstate.exe","loadstate.exe")) {
+    foreach ($exe in @("scanstate.exe", "loadstate.exe")) {
         $p = Join-Path $usmtDir $exe
         # Create a tiny PE-like stub with version info
         Set-Content -Path $p -Value "FAKE_EXE" -Force
     }
-    foreach ($xml in @("MigDocs.xml","MigApp.xml")) {
+    foreach ($xml in @("MigDocs.xml", "MigApp.xml")) {
         Set-Content -Path (Join-Path $usmtDir $xml) -Value "<xml/>" -Force
     }
     return $usmtDir
@@ -64,20 +64,20 @@ function New-FakePreScanData {
 
     # InstalledApps.csv
     @(
-        [PSCustomObject]@{DisplayName="App One";DisplayVersion="1.0";Publisher="Pub1";InstallDate="20240101"}
-        [PSCustomObject]@{DisplayName="App Two";DisplayVersion="2.0";Publisher="Pub2";InstallDate="20240201"}
-        [PSCustomObject]@{DisplayName="Missing App";DisplayVersion="3.0";Publisher="Pub3";InstallDate="20240301"}
+        [PSCustomObject]@{DisplayName = "App One"; DisplayVersion = "1.0"; Publisher = "Pub1"; InstallDate = "20240101" }
+        [PSCustomObject]@{DisplayName = "App Two"; DisplayVersion = "2.0"; Publisher = "Pub2"; InstallDate = "20240201" }
+        [PSCustomObject]@{DisplayName = "Missing App"; DisplayVersion = "3.0"; Publisher = "Pub3"; InstallDate = "20240301" }
     ) | Export-Csv (Join-Path $dir "InstalledApps.csv") -NoTypeInformation
 
     # Printers.csv
     @(
-        [PSCustomObject]@{Name="HP LaserJet";DriverName="HP Universal";PortName="USB001";Shared="False";PrinterStatus="Normal"}
-        [PSCustomObject]@{Name="Network Copier";DriverName="Ricoh";PortName="\\print\copier";Shared="True";PrinterStatus="Normal"}
+        [PSCustomObject]@{Name = "HP LaserJet"; DriverName = "HP Universal"; PortName = "USB001"; Shared = "False"; PrinterStatus = "Normal" }
+        [PSCustomObject]@{Name = "Network Copier"; DriverName = "Ricoh"; PortName = "\\print\copier"; Shared = "True"; PrinterStatus = "Normal" }
     ) | Export-Csv (Join-Path $dir "Printers.csv") -NoTypeInformation
 
     # MappedDrives.csv
     @(
-        [PSCustomObject]@{Name="S";DisplayRoot="\\fileserver\shared"}
+        [PSCustomObject]@{Name = "S"; DisplayRoot = "\\fileserver\shared" }
     ) | Export-Csv (Join-Path $dir "MappedDrives.csv") -NoTypeInformation
 
     # WiFiProfiles.txt
@@ -134,8 +134,8 @@ function New-MockDisk {
 function New-MockNetAdapter {
     param([string]$Status = "Up", [string]$Name = "Ethernet")
     [PSCustomObject]@{
-        Name            = $Name
-        Status          = $Status
+        Name                 = $Name
+        Status               = $Status
         InterfaceDescription = "Mock Adapter"
     }
 }

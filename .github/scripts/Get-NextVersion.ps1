@@ -59,7 +59,7 @@ else {
     }
 
     $storedYear = [int]$matches[1]
-    $storedN    = [int]$matches[2]
+    $storedN = [int]$matches[2]
 
     if ($currentYear -ne $storedYear) {
         $next = '{0:D2}.1' -f $currentYear

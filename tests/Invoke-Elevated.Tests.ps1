@@ -78,7 +78,7 @@ Describe "ConvertTo-ElevationArgumentString - marshalling" {
             $bp = @{
                 Foo     = 'bar'
                 Verbose = [System.Management.Automation.SwitchParameter]::new($true)
-                List    = @('a','b')
+                List    = @('a', 'b')
             }
             $s = ConvertTo-ElevationArgumentString -BoundParameters $bp -EnvVarPrefix 'MERLIN_TEST_'
             $s | Should -Match '-Foo "bar"'
@@ -87,7 +87,7 @@ Describe "ConvertTo-ElevationArgumentString - marshalling" {
         }
 
         It "Marshals a 3-element string array with commas and quotes" {
-            $bp = @{ Items = @('a','b','c') }
+            $bp = @{ Items = @('a', 'b', 'c') }
             $s = ConvertTo-ElevationArgumentString -BoundParameters $bp -EnvVarPrefix 'MERLIN_TEST_'
             $s | Should -Match '-Items "a","b","c"'
         }
@@ -160,7 +160,8 @@ Describe "ConvertTo-ElevationArgumentString - marshalling" {
             $bstr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($restored)
             try {
                 $decrypted = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-            } finally {
+            }
+            finally {
                 [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
             }
             $decrypted | Should -Be $plain
@@ -250,7 +251,7 @@ Describe "Request-Elevation - re-launch behavior" {
         $bp = @{
             Foo     = 'bar'
             Verbose = [System.Management.Automation.SwitchParameter]::new($true)
-            List    = @('a','b')
+            List    = @('a', 'b')
         }
         $s = ConvertTo-ElevationArgumentString -BoundParameters $bp -EnvVarPrefix 'MERLIN_TEST_'
         $s | Should -Match '-Foo "bar"'

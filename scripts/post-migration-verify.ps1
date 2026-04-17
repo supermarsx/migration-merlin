@@ -61,10 +61,10 @@ param(
     # Phase 3 / t1-e12: validation attribute accepts the literal default,
     # any empty value (realigned below), and any existing directory.
     [ValidateScript({
-        [string]::IsNullOrEmpty($_) -or
-        ($_ -match '^[a-zA-Z]:\\') -or
-        (Test-Path -LiteralPath $_ -PathType Container)
-    })]
+            [string]::IsNullOrEmpty($_) -or
+            ($_ -match '^[a-zA-Z]:\\') -or
+            (Test-Path -LiteralPath $_ -PathType Container)
+        })]
     [string]$MigrationFolder = "C:\MigrationStore"
 )
 
@@ -138,7 +138,8 @@ try {
             Write-Result "Profile: $user" "PASS" "Exists at $($p.LocalPath)"
         }
     }
-} catch {
+}
+catch {
     Write-Result "User profiles" "WARN" "Could not enumerate profiles: $_"
     Write-Log "User profile enumeration failed: $_" "WARN"
 }
@@ -151,7 +152,8 @@ if ($hasPreScan) {
             Write-Host "`n--- Source System Info ---" -ForegroundColor White
             Write-Result "Source PC" "INFO" "$($srcInfo.ComputerName) ($($srcInfo.OSVersion))"
             Write-Result "Captured" "INFO" $srcInfo.CaptureDate
-        } catch {
+        }
+        catch {
             Write-Result "Source system info" "WARN" "Could not parse SystemInfo.json: $_"
             Write-Log "SystemInfo.json parse failed: $_" "WARN"
         }
@@ -167,7 +169,8 @@ foreach ($folder in $docFolders) {
     if (Test-Path $path) {
         $count = (Get-ChildItem $path -Recurse -File -ErrorAction SilentlyContinue | Measure-Object).Count
         Write-Result "$folder" "PASS" "$count files"
-    } else {
+    }
+    else {
         Write-Result "$folder" "WARN" "Folder not found"
     }
 }
@@ -193,7 +196,8 @@ $sigPath = "$env:APPDATA\Microsoft\Signatures"
 if (Test-Path $sigPath) {
     $sigCount = (Get-ChildItem $sigPath -File -ErrorAction SilentlyContinue | Measure-Object).Count
     Write-Result "Outlook signatures" "PASS" "$sigCount files"
-} else {
+}
+else {
     Write-Result "Outlook signatures" "WARN" "Not found"
 }
 
@@ -217,7 +221,8 @@ if ($hasPreScan) {
                     Write-Result "Printer: $($sp.Name)" "WARN" "Was on source but not found on destination"
                 }
             }
-        } catch {
+        }
+        catch {
             Write-Result "Printer comparison" "WARN" "Could not parse Printers.csv: $_"
             Write-Log "Printers.csv parse failed: $_" "WARN"
         }
@@ -247,10 +252,12 @@ if ($hasPreScan) {
             if ($missing) {
                 $missing | ForEach-Object { Write-Result $_ "WARN" "Not installed on destination" }
                 Write-Host "`n  $($missing.Count) application(s) may need reinstalling." -ForegroundColor Yellow
-            } else {
+            }
+            else {
                 Write-Result "All source apps found" "PASS"
             }
-        } catch {
+        }
+        catch {
             Write-Result "App comparison" "WARN" "Could not compare apps: $_"
             Write-Log "App comparison failed: $_" "WARN"
         }
@@ -288,7 +295,8 @@ if ($wifiResult) {
             $missingWifi | ForEach-Object { Write-Result "Wi-Fi: $_" "WARN" "Was on source, not on destination" }
         }
     }
-} else {
+}
+else {
     Write-Result "Wi-Fi" "INFO" "No wireless adapter found"
 }
 
@@ -302,7 +310,8 @@ Write-Host "  Items marked [INFO] are informational only." -ForegroundColor Cyan
 Write-Host ""
 if ($hasPreScan) {
     Write-Host "  Pre-scan data used from: $preScanDir" -ForegroundColor Gray
-} else {
+}
+else {
     Write-Host "  No pre-scan data found. Run source-capture.ps1 with pre-scan for full comparison." -ForegroundColor Gray
 }
 if ($LogFile) {

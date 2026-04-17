@@ -51,14 +51,15 @@ Describe 'Invoke-WithErrorContext' {
         $script:logged = @()
         function global:Write-Log {
             param([string]$Message, [string]$Level = 'INFO')
-            $script:logged += ,@($Message, $Level)
+            $script:logged += , @($Message, $Level)
         }
         try {
             Invoke-WithErrorContext -ScriptBlock { throw 'ouch' } -Context 'CtxLog' -Severity 'WARN' | Out-Null
             # Should have at least the main error entry plus the DEBUG stack trace.
             $script:logged.Count | Should -BeGreaterOrEqual 1
             ($script:logged | ForEach-Object { $_[0] }) -join '|' | Should -Match 'CtxLog failed: ouch'
-        } finally {
+        }
+        finally {
             Remove-Item function:global:Write-Log -ErrorAction SilentlyContinue
         }
     }
@@ -92,7 +93,8 @@ Describe 'Assert-NotNull' {
         try {
             Assert-NotNull -Value $null -Name 'Foo' -Context 'MyFunc'
             throw 'expected Assert-NotNull to throw'
-        } catch {
+        }
+        catch {
             $_.Exception.Message | Should -Match 'Foo'
             $_.Exception.Message | Should -Match 'MyFunc'
         }

@@ -22,9 +22,9 @@ Describe 'MigrationUI module load' {
         $mod | Should -Not -BeNullOrEmpty
 
         $exported = $mod.ExportedFunctions.Keys
-        'Show-Banner','Show-Step','Show-Status','Show-Detail',
-        'Show-ProgressBar','Show-SubProgress','Show-Spinner',
-        'Set-MigrationUIState','Get-MigrationUIState',
+        'Show-Banner', 'Show-Step', 'Show-Status', 'Show-Detail',
+        'Show-ProgressBar', 'Show-SubProgress', 'Show-Spinner',
+        'Set-MigrationUIState', 'Get-MigrationUIState',
         'Get-MigrationUIGlyphs' | ForEach-Object {
             $exported | Should -Contain $_
         }
@@ -141,8 +141,8 @@ Describe 'Show-Step with state injection' {
         Set-MigrationUIState -State @{ CurrentStep = 0; TotalSteps = 0; StartTime = $null }
 
         $Global:CurrentStep = 0
-        $Global:TotalSteps  = 3
-        $Global:StartTime   = Get-Date
+        $Global:TotalSteps = 3
+        $Global:StartTime = Get-Date
         try {
             Show-Step -Description 'scoped' 6>&1 | Out-Null
             $Global:CurrentStep | Should -Be 1
@@ -167,9 +167,9 @@ Describe 'Show-ProgressBar' {
             # Filled/empty glyphs depend on console codepage (t1-e14a).
             $g = Get-MigrationUIGlyphs
             $filledChar = [char]$g.BarFilled
-            $emptyChar  = [char]$g.BarEmpty
+            $emptyChar = [char]$g.BarEmpty
             $filledCount = ($script:captured.ToCharArray() | Where-Object { $_ -eq $filledChar }).Count
-            $emptyCount  = ($script:captured.ToCharArray() | Where-Object { $_ -eq $emptyChar  }).Count
+            $emptyCount = ($script:captured.ToCharArray() | Where-Object { $_ -eq $emptyChar }).Count
             # Default ProgressBarLen = 35; 50% => 17 filled, 18 empty (floor).
             ($filledCount + $emptyCount) | Should -Be 35
             $filledCount | Should -Be 17
@@ -261,7 +261,7 @@ Describe 'Get-MigrationUIGlyphs' {
     It 'returns a hashtable with all expected keys' {
         $g = Get-MigrationUIGlyphs
         $g | Should -BeOfType [hashtable]
-        'BarFilled','BarEmpty','Spinner','CheckMark','Cross' | ForEach-Object {
+        'BarFilled', 'BarEmpty', 'Spinner', 'CheckMark', 'Cross' | ForEach-Object {
             $g.ContainsKey($_) | Should -BeTrue
         }
     }
@@ -283,7 +283,8 @@ Describe 'Get-MigrationUIGlyphs' {
                 [int][char]$g.BarFilled | Should -Be 0x2588
                 [int][char]$g.BarEmpty  | Should -Be 0x2591
                 @($g.Spinner).Count | Should -BeGreaterThan 4
-            } finally {
+            }
+            finally {
                 [Console]::OutputEncoding = $orig
             }
         }
@@ -307,10 +308,11 @@ Describe 'Get-MigrationUIGlyphs' {
                 $g = Get-MigrationUIGlyphs
                 [string]$g.BarFilled | Should -Be '#'
                 [string]$g.BarEmpty  | Should -Be '-'
-                $g.Spinner           | Should -Be @('|','/','-','\')
+                $g.Spinner           | Should -Be @('|', '/', '-', '\')
                 [string]$g.CheckMark | Should -Be '+'
                 [string]$g.Cross     | Should -Be 'x'
-            } finally {
+            }
+            finally {
                 [Console]::OutputEncoding = $orig
             }
         }
@@ -354,7 +356,8 @@ Describe 'Show-* functions use Get-MigrationUIGlyphs' {
                 # Must not contain Unicode block/shade glyphs.
                 ($script:captured.Contains([char]0x2588)) | Should -BeFalse
                 ($script:captured.Contains([char]0x2591)) | Should -BeFalse
-            } finally {
+            }
+            finally {
                 [Console]::OutputEncoding = $orig
             }
         }
@@ -379,7 +382,8 @@ Describe 'Show-* functions use Get-MigrationUIGlyphs' {
                 $joined = ($out -join '|')
                 $joined | Should -Match '50%'
                 ($joined.Contains([char]0x2588)) | Should -BeFalse
-            } finally {
+            }
+            finally {
                 [Console]::OutputEncoding = $orig
             }
         }
@@ -402,13 +406,14 @@ Describe 'Show-* functions use Get-MigrationUIGlyphs' {
                 $framesSeen = @{}
                 Mock Write-Host {
                     $s = ($Object -as [string])
-                    foreach ($c in '|','/','-','\') {
+                    foreach ($c in '|', '/', '-', '\') {
                         if ($s -and $s.Contains("[$c]")) { $framesSeen[$c] = $true }
                     }
                 }
                 Show-Spinner -Message 'spin' -Action { Start-Sleep -Milliseconds 250 } -IntervalMs 30 | Out-Null
                 $framesSeen.Keys.Count | Should -BeGreaterThan 1
-            } finally {
+            }
+            finally {
                 [Console]::OutputEncoding = $orig
             }
         }

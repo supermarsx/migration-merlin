@@ -13,17 +13,17 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Continue'
 
 $ToolkitRoot = 'C:\migration-merlin'
-$ResultsDir  = Join-Path $ToolkitRoot 'tests\e2e\results'
-$LogFile     = Join-Path $ResultsDir 'e2e-run.log'
-$MigFolder   = 'C:\E2E-MigrationStore'
-$ShareName   = 'E2EMigShare$'
-$TestUser    = $env:USERNAME
+$ResultsDir = Join-Path $ToolkitRoot 'tests\e2e\results'
+$LogFile = Join-Path $ResultsDir 'e2e-run.log'
+$MigFolder = 'C:\E2E-MigrationStore'
+$ShareName = 'E2EMigShare$'
+$TestUser = $env:USERNAME
 
 # ── Helpers ──────────────────────────────────────────────────
 function Log([string]$Msg, [string]$Level = 'INFO') {
     $ts = (Get-Date).ToString('HH:mm:ss')
     $line = "[$ts] [$Level] $Msg"
-    Write-Host $line -ForegroundColor $(switch($Level){ 'PASS'{'Green'} 'FAIL'{'Red'} 'WARN'{'Yellow'} 'STEP'{'Cyan'} default{'White'} })
+    Write-Host $line -ForegroundColor $(switch ($Level) { 'PASS' { 'Green' } 'FAIL' { 'Red' } 'WARN' { 'Yellow' } 'STEP' { 'Cyan' } default { 'White' } })
     $line | Out-File $LogFile -Append -Encoding UTF8
 }
 
@@ -33,7 +33,8 @@ function Assert([string]$Name, [bool]$Condition, [string]$Detail = '') {
     if ($Condition) {
         Log "  PASS: $Name" 'PASS'
         $script:Passed++
-    } else {
+    }
+    else {
         $msg = "  FAIL: $Name"
         if ($Detail) { $msg += " -- $Detail" }
         Log $msg 'FAIL'
@@ -93,8 +94,8 @@ $usmtToolsDir = Join-Path $ToolkitRoot 'USMT-Tools'
 if (Test-Path $usmtToolsDir) { Remove-Item $usmtToolsDir -Recurse -Force }
 
 $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' }
-        elseif ([Environment]::Is64BitOperatingSystem) { 'amd64' }
-        else { 'x86' }
+elseif ([Environment]::Is64BitOperatingSystem) { 'amd64' }
+else { 'x86' }
 
 # Manual extraction test
 Log "  Extracting $arch from zip..."
@@ -150,7 +151,7 @@ Assert 'USMT subfolder exists' (Test-Path (Join-Path $MigFolder 'USMT'))
 Assert 'Logs subfolder exists' (Test-Path (Join-Path $MigFolder 'Logs'))
 
 # Check share
-$share = Get-SmbShare -Name ($ShareName -replace '\$','$') -ErrorAction SilentlyContinue
+$share = Get-SmbShare -Name ($ShareName -replace '\$', '$') -ErrorAction SilentlyContinue
 Assert 'SMB share created' ($null -ne $share)
 if ($share) {
     Assert 'Share path matches' ($share.Path -eq $MigFolder)
@@ -167,7 +168,8 @@ try {
     'test' | Set-Content $testFile -ErrorAction Stop
     Assert 'Share folder is writable' $true
     Remove-Item $testFile -Force
-} catch {
+}
+catch {
     Assert 'Share folder is writable' $false
 }
 
@@ -254,7 +256,8 @@ if (Test-Path $scanLog) {
     $logContent = Get-Content $scanLog -Raw -ErrorAction SilentlyContinue
     Assert 'ScanState log not empty' ($logContent.Length -gt 0)
     Log "  ScanState log: $((Get-Item $scanLog).Length / 1KB) KB"
-} else {
+}
+else {
     Log '  ScanState log not found (may be in alternate location)' 'WARN'
 }
 
@@ -331,7 +334,8 @@ if (Test-Path $testDataDir) {
     $content = Get-Content (Join-Path $testDataDir 'test-doc.txt') -ErrorAction SilentlyContinue
     Assert 'Document content intact' ($content -match 'E2E migration')
     Log '  Test documents successfully restored!'
-} else {
+}
+else {
     Log '  Test documents not restored (may need user logoff/logon)' 'WARN'
     Assert 'Test documents restored (deferred)' $true  # Sandbox limitation
 }
@@ -392,7 +396,7 @@ Log "  Exit code: $($r.ExitCode)"
 Assert 'Cleanup exits 0' ($r.ExitCode -eq 0)
 
 # Verify cleanup
-$shareGone = $null -eq (Get-SmbShare -Name ($ShareName -replace '\$','$') -ErrorAction SilentlyContinue)
+$shareGone = $null -eq (Get-SmbShare -Name ($ShareName -replace '\$', '$') -ErrorAction SilentlyContinue)
 Assert 'Share removed' $shareGone
 
 $fwGone = $null -eq (Get-NetFirewallRule -DisplayName '*Migration*' -ErrorAction SilentlyContinue)
@@ -461,7 +465,7 @@ Log ''
 #  RESULTS
 # ═════════════════════════════════════════════════════════════
 Log '═══════════════════════════════════════════════════════' 'STEP'
-Log "  RESULTS: $($script:Passed) passed, $($script:Failed) failed" $(if($script:Failed -eq 0){'PASS'}else{'FAIL'})
+Log "  RESULTS: $($script:Passed) passed, $($script:Failed) failed" $(if ($script:Failed -eq 0) { 'PASS' }else { 'FAIL' })
 Log '═══════════════════════════════════════════════════════' 'STEP'
 
 # Write summary JSON

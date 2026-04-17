@@ -44,12 +44,14 @@ function Invoke-WithErrorContext {
     )
     try {
         & $ScriptBlock
-    } catch {
+    }
+    catch {
         $msg = "$Context failed: $($_.Exception.Message)"
         if (Get-Command Write-Log -ErrorAction SilentlyContinue) {
             Write-Log $msg $Severity
             Write-Log "StackTrace: $($_.ScriptStackTrace)" 'DEBUG'
-        } else {
+        }
+        else {
             Write-Host $msg -ForegroundColor Red
         }
         if ($Rethrow) { throw }
@@ -83,7 +85,8 @@ function Assert-NotNull {
     $isEmpty = $false
     if ($null -eq $Value) {
         $isEmpty = $true
-    } elseif ($Value -is [string] -and [string]::IsNullOrWhiteSpace($Value)) {
+    }
+    elseif ($Value -is [string] -and [string]::IsNullOrWhiteSpace($Value)) {
         $isEmpty = $true
     }
 

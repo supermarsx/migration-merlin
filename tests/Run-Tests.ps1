@@ -71,7 +71,8 @@ Write-Host ""
 Write-Host "  ============================================" -ForegroundColor Magenta
 if ($result.FailedCount -eq 0) {
     Write-Host "    ALL TESTS PASSED" -ForegroundColor Green
-} else {
+}
+else {
     Write-Host "    $($result.FailedCount) TEST(S) FAILED" -ForegroundColor Red
 }
 Write-Host "    Passed: $($result.PassedCount)  Failed: $($result.FailedCount)  Skipped: $($result.SkippedCount)" -ForegroundColor White

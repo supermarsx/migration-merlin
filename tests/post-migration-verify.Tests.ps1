@@ -351,7 +351,7 @@ Describe "Output formatting" {
 
     It "Should display section headers" {
         $sections = @("User Profiles", "User Documents", "Browser Data", "Outlook",
-                      "Printers", "Developer", "Wi-Fi")
+            "Printers", "Developer", "Wi-Fi")
         foreach ($s in $sections) {
             $scriptContent | Should -Match $s
         }

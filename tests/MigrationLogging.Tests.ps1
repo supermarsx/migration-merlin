@@ -37,11 +37,11 @@ Describe 'MigrationLogging import' {
 Describe 'Format-SafeParams — sensitive key masking' {
     It 'masks Password, EncryptionKey, SharePassword, ApiKey, Token with ***' {
         $params = @{
-            Password       = 'hunter2'
-            EncryptionKey  = 'DEADBEEF'
-            SharePassword  = 'p@ss'
-            ApiKey         = 'sk_live_123'
-            Token          = 'abc.def.ghi'
+            Password      = 'hunter2'
+            EncryptionKey = 'DEADBEEF'
+            SharePassword = 'p@ss'
+            ApiKey        = 'sk_live_123'
+            Token         = 'abc.def.ghi'
         }
         $out = Format-SafeParams -Parameters $params -AsObject
         $out['Password']      | Should -Be '***'
@@ -69,7 +69,7 @@ Describe 'Format-SafeParams — sensitive key masking' {
         # Each cased spelling must mask independently (one hashtable per case
         # because PowerShell hashtables are case-insensitive by default and
         # would collapse these into a single key).
-        foreach ($k in @('password','PASSWORD','Password','pAsSwOrD')) {
+        foreach ($k in @('password', 'PASSWORD', 'Password', 'pAsSwOrD')) {
             $params = @{ $k = 'secret' }
             $out = Format-SafeParams -Parameters $params -AsObject
             $out[$k] | Should -Be '***'
@@ -134,7 +134,7 @@ Describe 'Format-SafeParams — nested masking' {
         $params = @{
             Outer = @{
                 Password = 'secret1'
-                Inner = @{
+                Inner    = @{
                     ApiKey = 'secret2'
                     Note   = 'visible'
                 }
