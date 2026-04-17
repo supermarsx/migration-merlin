@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableDelayedExpansion
-title Migration Merlin - Verify Migration
+title MigrationMerlin - Verify Migration
 color 0B
 
 set "SILENT="
@@ -12,7 +12,7 @@ for %%A in (%*) do (
 if not defined SILENT (
     echo.
     echo  ============================================================
-    echo     MIGRATION MERLIN - Post-Migration Verification
+    echo     MIGRATIONMERLIN - Post-Migration Verification
     echo  ============================================================
     echo.
     echo   This will compare the source PC inventory against

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Migration Merlin - Unified interactive TUI for USMT PC-to-PC migration.
+    MigrationMerlin - Unified interactive TUI for USMT PC-to-PC migration.
 
 .DESCRIPTION
     Single-file entry point that wraps destination-setup.ps1, source-capture.ps1,
@@ -14,19 +14,19 @@
     for scripted / unattended deployments.
 
 .EXAMPLE
-    PS> .\Migration-Merlin.ps1
+    PS> .\MigrationMerlin.ps1
 
     Launches the TUI with defaults. The menu walks the user through setup,
     capture, restore, verification, and cleanup in sequence.
 
 .EXAMPLE
-    PS> .\Migration-Merlin.bat
+    PS> .\MigrationMerlin.bat
 
     Double-click wrapper that launches the TUI via PowerShell with the
     correct execution policy. Equivalent to the direct .ps1 invocation.
 
 .EXAMPLE
-    PS> .\Migration-Merlin.ps1
+    PS> .\MigrationMerlin.ps1
     (Once inside the TUI, pick "Load Configuration" to restore a previously
      saved run configuration from %LOCALAPPDATA%\MigrationMerlin\config.json.)
 
@@ -121,7 +121,7 @@ if (-not $script:IsUNC) {
 }
 
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
-$host.UI.RawUI.WindowTitle = 'Migration Merlin'
+$host.UI.RawUI.WindowTitle = 'MigrationMerlin'
 
 # Minimum terminal size
 if ([Console]::WindowWidth -lt 64) {
@@ -669,7 +669,7 @@ exit `$LASTEXITCODE
     Write-Host ""
     Write-Host "    ${cG}$([char]0x2713)${RST} ${cW}Done${RST} ${cGR}[$elapsed]${RST}"
 
-    $host.UI.RawUI.WindowTitle = 'Migration Merlin'
+    $host.UI.RawUI.WindowTitle = 'MigrationMerlin'
     HideCur
     Remove-Item $tmp -Force -ErrorAction SilentlyContinue
     return ($ec -eq 0)
@@ -1356,7 +1356,7 @@ function Main {
                 [Console]::Write("$E[2J$E[H")
                 ShowCur
                 Write-Host ""
-                Write-Host "  ${cC}$([char]0x26A1)${RST} ${cW}Thanks for using Migration Merlin!${RST} ${cC}$([char]0x26A1)${RST}"
+                Write-Host "  ${cC}$([char]0x26A1)${RST} ${cW}Thanks for using MigrationMerlin!${RST} ${cC}$([char]0x26A1)${RST}"
                 Write-Host ""
                 return
             }

@@ -17,7 +17,7 @@ $ResultsDir = Join-Path $ScriptRoot 'results'
 
 # ── Pre-checks ──
 Write-Host ''
-Write-Host '  Migration Merlin — E2E Sandbox Test Launcher' -ForegroundColor Cyan
+Write-Host '  MigrationMerlin — E2E Sandbox Test Launcher' -ForegroundColor Cyan
 Write-Host '  ──────────────────────────────────────────────' -ForegroundColor DarkGray
 Write-Host ''
 

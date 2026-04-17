@@ -1,8 +1,12 @@
-# Migration-Merlin
+# MigrationMerlin
 
 USMT-based Windows user-profile migration toolkit with TUI, batch wrappers, and a robust test suite.
 
-Migration-Merlin is a PC-to-PC user-state migration tool for Windows sysadmins and power users. It wraps Microsoft's official User State Migration Tool (`scanstate.exe` / `loadstate.exe`) with a friendly interactive TUI, numbered batch wrappers for step-by-step runs, an auto-configured SMB transfer share, optional AES-256 store encryption, multi-user include/exclude filtering, and a substantial Pester test suite. It is designed for the real-world case of moving a user (or a handful of users) from an old Windows 10/11 PC to a new one over the local network without hand-rolling USMT commands.
+![CI](https://github.com/supermarsx/migration-merlin/actions/workflows/ci.yml/badge.svg)
+
+Rolling release · [latest release](https://github.com/supermarsx/migration-merlin/releases/latest)
+
+MigrationMerlin is a PC-to-PC user-state migration tool for Windows sysadmins and power users. It wraps Microsoft's official User State Migration Tool (`scanstate.exe` / `loadstate.exe`) with a friendly interactive TUI, numbered batch wrappers for step-by-step runs, an auto-configured SMB transfer share, optional AES-256 store encryption, multi-user include/exclude filtering, and a substantial Pester test suite. It is designed for the real-world case of moving a user (or a handful of users) from an old Windows 10/11 PC to a new one over the local network without hand-rolling USMT commands.
 
 ## Features
 
@@ -16,15 +20,15 @@ Migration-Merlin is a PC-to-PC user-state migration tool for Windows sysadmins a
 - Dry-run mode that prints the composed USMT command line without executing it
 - Auto-elevation via UAC with safe SecureString marshalling across the boundary
 - Transcript logging with credential masking to the migration folder's `Logs\`
-- Interactive TUI launcher (`Migration-Merlin.bat`) with saved configurations
+- Interactive TUI launcher (`MigrationMerlin.bat`) with saved configurations
 - Pester v5 test suite (~645 tests) covering modules, scripts, and integration paths
 
 ## Repo layout
 
 ```
 /
-├── Migration-Merlin.bat       Entry point (auto-elevating batch wrapper)
-├── Migration-Merlin.ps1       Interactive TUI launcher
+├── MigrationMerlin.bat        Entry point (auto-elevating batch wrapper)
+├── MigrationMerlin.ps1        Interactive TUI launcher
 ├── modules/                   Reusable PowerShell modules (8 files)
 ├── scripts/                   Workflow scripts (capture / restore / verify)
 ├── wrappers/                  Numbered .bat wrappers for the 5 manual steps
@@ -68,7 +72,7 @@ wrappers\5-Cleanup.bat
 
 ### Interactive TUI
 
-Double-click `Migration-Merlin.bat` (or run `.\Migration-Merlin.ps1`) for an arrow-key driven menu that walks through setup, capture, restore, verification, and cleanup in sequence. Configuration is persisted to `%LOCALAPPDATA%\MigrationMerlin\config.json` between runs.
+Double-click `MigrationMerlin.bat` (or run `.\MigrationMerlin.ps1`) for an arrow-key driven menu that walks through setup, capture, restore, verification, and cleanup in sequence. Configuration is persisted to `%LOCALAPPDATA%\MigrationMerlin\config.json` between runs.
 
 ### Scripted invocation
 
@@ -167,6 +171,22 @@ pwsh -File tests\Run-Tests.ps1 -CI                    # JUnit XML for CI
 ```
 
 Expected baseline on Windows with Pester 5.x installed: **645 passed / 0 failed / 2 skipped**. The two skipped tests are environment-gated (long-running integration paths).
+
+## Releases
+
+Migration Merlin ships as a rolling release. Every commit that passes
+lint, format, test, build, and package stages is published as a new
+release automatically.
+
+Version format: **YY.N** (two-digit year, dot, incremental within
+the year). No `v` prefix. The current version is stored in the
+`VERSION` file at the repo root and bumped automatically by CI.
+
+Examples: `26.1`, `26.2`, … `26.47`. A new year resets the counter:
+`27.1`, `27.2`, …
+
+Releases are tagged on `main`. Downloadable zip artifacts are
+attached to each GitHub Release.
 
 ## License
 

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Shared validation helpers for Migration-Merlin parameter attributes and
+    Shared validation helpers for MigrationMerlin parameter attributes and
     optional runtime checks.
 
 .DESCRIPTION
@@ -65,7 +65,7 @@ function Test-ProfileName {
         Rejects names containing any of: \ / [ ] : ; | = , + * ? < >
         Rejects empty / whitespace-only strings.
         Does NOT enforce Windows' 20-character local-account limit because
-        Migration-Merlin also supports domain accounts which can be longer.
+        MigrationMerlin also supports domain accounts which can be longer.
     #>
     [OutputType([bool])]
     [CmdletBinding()]

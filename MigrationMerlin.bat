@@ -1,5 +1,5 @@
 @echo off
-title Migration Merlin
+title MigrationMerlin
 
 :: ---- Auto-elevate ----
 net session >nul 2>&1
@@ -12,7 +12,7 @@ if %errorlevel% neq 0 (
 pushd "%~dp0"
 
 :: Launch the interactive TUI
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Migration-Merlin.ps1"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0MigrationMerlin.ps1"
 if %errorlevel% neq 0 (
     echo.
     echo  TUI failed to launch. Run the numbered .bat files directly:

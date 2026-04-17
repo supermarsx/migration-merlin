@@ -9,7 +9,7 @@
     side effects - the caller is responsible for holding the path
     (typically in a MigrationState object - see t1-e11).
 .NOTES
-    Task t1-e3 (phase p1) of the Migration-Merlin refactor.
+    Task t1-e3 (phase p1) of the MigrationMerlin refactor.
 #>
 
 # ----------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableDelayedExpansion
-title Migration Merlin - Cleanup
+title MigrationMerlin - Cleanup
 color 0E
 
 set "SILENT="
@@ -13,7 +13,7 @@ for %%A in (%*) do (
 if not defined SILENT (
     echo.
     echo  ============================================================
-    echo     MIGRATION MERLIN - Cleanup
+    echo     MIGRATIONMERLIN - Cleanup
     echo  ============================================================
     echo.
     echo   This will remove:

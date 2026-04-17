@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableDelayedExpansion
-title Migration Merlin - Restore on Destination PC
+title MigrationMerlin - Restore on Destination PC
 color 0B
 
 set "SILENT="
@@ -13,7 +13,7 @@ for %%A in (%*) do (
 if not defined SILENT (
     echo.
     echo  ============================================================
-    echo     MIGRATION MERLIN - Restore User State
+    echo     MIGRATIONMERLIN - Restore User State
     echo  ============================================================
     echo.
     echo   This will restore captured user data using USMT LoadState.

@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Shared logging, error handling, and retry infrastructure for migration-merlin.
+    Shared logging, error handling, and retry infrastructure for migrationmerlin.
 .DESCRIPTION
     Dot-source this file from any migration script to get:
     - Robust Write-Log with fallback locations
@@ -126,7 +126,7 @@ function Write-Log {
             } catch {
                 # Both failed - write to event log as last resort
                 try {
-                    Write-EventLog -LogName Application -Source "Migration Merlin" `
+                    Write-EventLog -LogName Application -Source "MigrationMerlin" `
                         -EventId 1000 -EntryType Warning -Message $entry -ErrorAction SilentlyContinue
                 } catch {}
             }

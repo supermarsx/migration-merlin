@@ -1,7 +1,7 @@
 <#
 .SYNOPSIS
     Integration tests for USMT handling across source-capture.ps1,
-    destination-setup.ps1, and Migration-Merlin.ps1.
+    destination-setup.ps1, and MigrationMerlin.ps1.
 
 .DESCRIPTION
     After task t1 (phases p1/p2), USMT detection/install/download logic
@@ -20,7 +20,7 @@
       3. The scripts forward -USMTPath into the module.
       4. The ADK installer URL flows through MigrationConstants and is pinned
          at the integration level (regression guard).
-      5. The TUI (Migration-Merlin.ps1) still does its own lightweight USMT
+      5. The TUI (MigrationMerlin.ps1) still does its own lightweight USMT
          pre-check and passes -USMTPath to the scripts. (TUI has not yet been
          migrated to USMTTools — tracked separately.)
       6. Live USMT binaries on the host (when installed) work.
@@ -35,7 +35,7 @@ BeforeAll {
     $ScriptRoot    = Split-Path $PSScriptRoot -Parent
     $SourceScript  = "$ScriptRoot\scripts\source-capture.ps1"
     $DestScript    = "$ScriptRoot\scripts\destination-setup.ps1"
-    $TuiScript     = "$ScriptRoot\Migration-Merlin.ps1"
+    $TuiScript     = "$ScriptRoot\MigrationMerlin.ps1"
     $ConstantsPath = "$ScriptRoot\modules\MigrationConstants.psm1"
 
     $srcContent  = Get-Content $SourceScript  -Raw
@@ -141,7 +141,7 @@ Describe 'ADK installer URL integrity' {
     }
 }
 
-Describe 'TUI USMT pre-check (Migration-Merlin.ps1)' {
+Describe 'TUI USMT pre-check (MigrationMerlin.ps1)' {
     # The TUI has not yet been migrated to USMTTools (its Find-USMT is a
     # lightweight pre-check with no install). Until that migration lands we
     # keep a minimal wiring check: function exists, it still knows about the

@@ -1,10 +1,10 @@
 <#
 .SYNOPSIS
-    Centralized constants for the Migration-Merlin toolkit.
+    Centralized constants for the MigrationMerlin toolkit.
 .DESCRIPTION
     Exports a single read-only hashtable `$MigrationConstants` that replaces
     values previously duplicated across source-capture.ps1, destination-setup.ps1,
-    post-migration-verify.ps1, and Migration-Merlin.ps1.
+    post-migration-verify.ps1, and MigrationMerlin.ps1.
 
     A `Get-MigrationConstant` helper supports dotted-path lookup (e.g.
     `Get-MigrationConstant 'USMT.ZipName'`).
@@ -80,7 +80,7 @@ $__Constants = @{
     Defaults = @{
         MigrationFolder  = 'C:\MigrationStore'
         ShareName        = 'MigrationShare$'
-        ShareDescription = 'Migration-Merlin migration share'
+        ShareDescription = 'MigrationMerlin migration share'
     }
 
     UI = @{

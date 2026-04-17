@@ -359,8 +359,8 @@ Describe "Project file structure" {
         Test-Path "$PSScriptRoot\..\scripts\post-migration-verify.ps1" | Should -BeTrue
     }
 
-    It "Should have QUICKSTART.md" {
-        Test-Path "$PSScriptRoot\..\QUICKSTART.md" | Should -BeTrue
+    It "Should have readme.md" {
+        Test-Path "$PSScriptRoot\..\readme.md" | Should -BeTrue
     }
 
     It "Should have tests directory" {

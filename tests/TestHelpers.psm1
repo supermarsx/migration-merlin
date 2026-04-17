@@ -1,4 +1,4 @@
-# Shared mock factories and helpers for migration-merlin Pester tests.
+# Shared mock factories and helpers for migrationmerlin Pester tests.
 # Import with:  Import-Module "$PSScriptRoot\TestHelpers.psm1" -Force
 
 function New-MockAdminIdentity {

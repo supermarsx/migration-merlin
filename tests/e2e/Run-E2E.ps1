@@ -54,7 +54,7 @@ if (-not (Test-Path $ResultsDir)) { New-Item $ResultsDir -ItemType Directory -Fo
 '' | Set-Content $LogFile -Encoding UTF8
 
 Log '═══════════════════════════════════════════════════════' 'STEP'
-Log '  MIGRATION MERLIN — E2E TEST SUITE (SANDBOX)' 'STEP'
+Log '  MIGRATIONMERLIN — E2E TEST SUITE (SANDBOX)' 'STEP'
 Log '═══════════════════════════════════════════════════════' 'STEP'
 Log "Toolkit: $ToolkitRoot"
 Log "Computer: $env:COMPUTERNAME"

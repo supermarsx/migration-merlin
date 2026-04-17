@@ -1,0 +1,276 @@
+# Migration-Merlin CI/CD pipeline.
+#
+# Every PR and every push to `main` runs three independent gates in
+# parallel: `lint`, `format`, `test`.
+#
+# On push to `main` (and only on main), success of the gates triggers a
+# linear chain: build -> package -> release. The release job bumps the
+# YY.N version in the VERSION file, commits it with `[skip ci]`, tags the
+# commit, and creates a GitHub release containing the packaged zip.
+#
+# Design notes:
+#   * Runner is `windows-latest` for authenticity -- this repo is a Windows
+#     USMT wrapper and its Pester tests (even when mocked) expect a Windows
+#     host.
+#   * PowerShell 7 (`pwsh`) is used everywhere; it ships with the runner.
+#   * PSScriptAnalyzer + Pester are cached between runs keyed on the hash
+#     of *.ps1/*.psm1 so module re-installs are rare.
+#   * The `format` job is advisory (continue-on-error) on purpose: we have
+#     not enforced Invoke-Formatter output on the existing tree yet, and
+#     failing the build on a whitespace drift would be noise. Flip this
+#     switch to `false` once the codebase has been formatted once.
+#   * The version-bump commit message contains `[skip ci]` so the push it
+#     generates does NOT recursively trigger another release.
+#   * `softprops/action-gh-release@v2` uses the repository's GITHUB_TOKEN.
+#     If a branch-protection rule blocks github-actions from pushing to
+#     `main`, swap this for a PAT stored in a secret called RELEASE_TOKEN.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  lint:
+    name: Lint (PSScriptAnalyzer)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache PowerShell modules
+        uses: actions/cache@v4
+        with:
+          path: ~\Documents\PowerShell\Modules
+          key: psmodules-analyzer-${{ hashFiles('**/*.ps1', '**/*.psm1', 'PSScriptAnalyzerSettings.psd1') }}
+          restore-keys: |
+            psmodules-analyzer-
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
+            Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -ErrorAction Stop
+          }
+          Import-Module PSScriptAnalyzer -ErrorAction Stop
+          (Get-Module PSScriptAnalyzer).Version.ToString()
+
+      - name: Run PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $results = Invoke-ScriptAnalyzer `
+            -Path . `
+            -Recurse `
+            -Settings .\PSScriptAnalyzerSettings.psd1 `
+            -ExcludeRule PSUseCompatibleSyntax
+          if ($results) {
+            $results | Format-Table -AutoSize | Out-String | Write-Host
+          } else {
+            Write-Host "PSScriptAnalyzer: no findings."
+          }
+          $errors = @($results | Where-Object { $_.Severity -eq 'Error' })
+          if ($errors.Count -gt 0) {
+            Write-Host "::error::PSScriptAnalyzer reported $($errors.Count) error(s)."
+            exit 1
+          }
+
+  format:
+    name: Format check (advisory)
+    runs-on: windows-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache PowerShell modules
+        uses: actions/cache@v4
+        with:
+          path: ~\Documents\PowerShell\Modules
+          key: psmodules-analyzer-${{ hashFiles('**/*.ps1', '**/*.psm1', 'PSScriptAnalyzerSettings.psd1') }}
+          restore-keys: |
+            psmodules-analyzer-
+
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        run: |
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
+            Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -ErrorAction Stop
+          }
+          Import-Module PSScriptAnalyzer -ErrorAction Stop
+
+      - name: Check Invoke-Formatter drift
+        shell: pwsh
+        run: |
+          $targets = @()
+          foreach ($d in @('modules','scripts','tests','.github/scripts','wrappers')) {
+            if (Test-Path $d) {
+              $targets += Get-ChildItem -Path $d -Recurse -Include *.ps1,*.psm1 -File
+            }
+          }
+          foreach ($top in @('MigrationMerlin.ps1')) {
+            if (Test-Path $top) { $targets += Get-Item $top }
+          }
+          $drift = 0
+          foreach ($file in $targets) {
+            $orig = Get-Content -LiteralPath $file.FullName -Raw
+            if ($null -eq $orig) { continue }
+            $fmt = Invoke-Formatter -ScriptDefinition $orig
+            if ($orig -ne $fmt) {
+              Write-Host "FORMAT DRIFT  $($file.FullName)"
+              $drift++
+            }
+          }
+          if ($drift -gt 0) {
+            Write-Host "::warning::$drift file(s) differ from Invoke-Formatter output."
+            exit 1
+          }
+          Write-Host "Format check: all files match formatter output."
+
+  test:
+    name: Pester tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache PowerShell modules
+        uses: actions/cache@v4
+        with:
+          path: ~\Documents\PowerShell\Modules
+          key: psmodules-pester-${{ hashFiles('tests/**/*.ps1', 'tests/**/*.psm1') }}
+          restore-keys: |
+            psmodules-pester-
+
+      - name: Install Pester 5
+        shell: pwsh
+        run: |
+          $needed = $true
+          $existing = Get-Module Pester -ListAvailable | Where-Object { $_.Version -ge [version]'5.5.0' }
+          if ($existing) { $needed = $false }
+          if ($needed) {
+            Install-Module Pester -Force -Scope CurrentUser -SkipPublisherCheck -MinimumVersion 5.5.0 -ErrorAction Stop
+          }
+          (Get-Module Pester -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1).Version.ToString()
+
+      - name: Run Pester suite
+        shell: pwsh
+        run: .\tests\Run-Tests.ps1 -CI -Output Normal
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pester-results
+          path: tests/test-results.xml
+          if-no-files-found: ignore
+
+  build:
+    name: Build
+    runs-on: windows-latest
+    needs: [lint, format, test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Invoke-Build
+        shell: pwsh
+        run: .\.github\scripts\Invoke-Build.ps1 -OutputDir dist
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build
+          path: dist/
+
+  package:
+    name: Package
+    runs-on: windows-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: build
+          path: dist
+
+      - name: Invoke-Package
+        shell: pwsh
+        run: .\.github\scripts\Invoke-Package.ps1 -InputDir dist -OutputDir pkg
+
+      - name: Upload package artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: package
+          path: pkg/
+
+  release:
+    name: Release
+    runs-on: windows-latest
+    needs: package
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download package artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: package
+          path: pkg
+
+      - name: Bump VERSION
+        id: ver
+        shell: pwsh
+        run: |
+          $next = .\.github\scripts\Get-NextVersion.ps1 -Write
+          "version=$next" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "Next version: $next"
+
+      - name: Rename package artifact to match new version
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          $target = "pkg\MigrationMerlin-$v.zip"
+          Get-ChildItem pkg\*.zip | ForEach-Object {
+            if ($_.FullName -ne (Resolve-Path $target -ErrorAction SilentlyContinue).Path) {
+              Move-Item -LiteralPath $_.FullName -Destination $target -Force
+            }
+          }
+          Get-ChildItem pkg
+
+      - name: Commit VERSION bump and tag
+        shell: pwsh
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add VERSION
+          git commit -m "Bump version to $v [skip ci]"
+          git tag $v
+          git push origin HEAD:main --follow-tags
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.version }}
+          name: MigrationMerlin ${{ steps.ver.outputs.version }}
+          body: |
+            Rolling release built from commit ${{ github.sha }}.
+
+            Source: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
+          files: pkg/*.zip
+          prerelease: false
+          fail_on_unmatched_files: true

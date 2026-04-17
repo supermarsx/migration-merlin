@@ -1,6 +1,6 @@
 @echo off
 setlocal EnableDelayedExpansion
-title Migration Merlin - Source PC Capture
+title MigrationMerlin - Source PC Capture
 color 0B
 
 :: ---- Parse flags ----
@@ -30,7 +30,7 @@ for %%A in (%*) do (
 if not defined SILENT (
     echo.
     echo  ============================================================
-    echo     MIGRATION MERLIN - Source PC Capture
+    echo     MIGRATIONMERLIN - Source PC Capture
     echo  ============================================================
     echo.
     echo   This will:

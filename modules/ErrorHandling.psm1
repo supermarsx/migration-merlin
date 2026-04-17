@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Shared error-handling primitives for Migration-Merlin.
+    Shared error-handling primitives for MigrationMerlin.
 
 .DESCRIPTION
     Introduced in Phase 3 (t1-e12). Sister module to MigrationValidators.psm1.

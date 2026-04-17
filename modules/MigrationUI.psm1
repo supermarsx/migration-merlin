@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Shared UI helper functions for Migration-Merlin scripts.
+    Shared UI helper functions for MigrationMerlin scripts.
 
 .DESCRIPTION
     Extracted from source-capture.ps1 and destination-setup.ps1 to eliminate

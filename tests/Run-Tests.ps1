@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Runs the full Pester test suite for migration-merlin.
+    Runs the full Pester test suite for migrationmerlin.
 .DESCRIPTION
     Executes all *.Tests.ps1 files in this directory and produces
     a summary report. Supports filtering by test file name.
@@ -40,7 +40,7 @@ if ($testFiles.Count -eq 0) {
 
 Write-Host ""
 Write-Host "  ============================================" -ForegroundColor Magenta
-Write-Host "    Migration Merlin - Test Suite" -ForegroundColor Magenta
+Write-Host "    MigrationMerlin - Test Suite" -ForegroundColor Magenta
 Write-Host "  ============================================" -ForegroundColor Magenta
 Write-Host ""
 Write-Host "  Test files:" -ForegroundColor Cyan
