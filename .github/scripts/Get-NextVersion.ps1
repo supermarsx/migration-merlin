@@ -3,21 +3,21 @@
     Compute the next rolling-release version in YY.N format.
 
 .DESCRIPTION
-    Reads the repository-root VERSION file, parses its YY.N contents, and
+    Reads the repository-root version file, parses its YY.N contents, and
     returns the next version:
 
       * If the stored year (YY) matches the current year, N is incremented.
       * If the year has changed, the version resets to "<current YY>.1".
 
-    When -Write is supplied the VERSION file is updated in place (no trailing
+    When -Write is supplied the version file is updated in place (no trailing
     newline). The next version string is always written to the output stream
     so callers can capture it.
 
-    If the VERSION file is missing or empty the script initialises it to
+    If the version file is missing or empty the script initialises it to
     "<current YY>.1" instead of throwing.
 
 .PARAMETER Write
-    When specified, persist the computed next version to the VERSION file.
+    When specified, persist the computed next version to the version file.
 
 .PARAMETER Now
     Optional override for the current date. Primarily for tests that need to
@@ -38,7 +38,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$versionPath = Join-Path $PSScriptRoot '..\..\VERSION'
+$versionPath = Join-Path $PSScriptRoot '..\..\version'
 $currentYear = [int]$Now.ToString('yy')
 
 $current = $null
@@ -50,12 +50,12 @@ if (Test-Path -LiteralPath $versionPath) {
 }
 
 if ([string]::IsNullOrWhiteSpace($current)) {
-    # Bootstrap: missing/empty VERSION file starts at <YY>.1.
+    # Bootstrap: missing/empty version file starts at <YY>.1.
     $next = '{0:D2}.1' -f $currentYear
 }
 else {
     if ($current -notmatch '^(\d{2})\.(\d+)$') {
-        throw "VERSION file has invalid format: '$current'. Expected YY.N."
+        throw "version file has invalid format: '$current'. Expected YY.N."
     }
 
     $storedYear = [int]$matches[1]

@@ -180,7 +180,7 @@ release automatically.
 
 Version format: **YY.N** (two-digit year, dot, incremental within
 the year). No `v` prefix. The current version is stored in the
-`VERSION` file at the repo root and bumped automatically by CI.
+`version` file at the repo root and bumped automatically by CI.
 
 Examples: `26.1`, `26.2`, … `26.47`. A new year resets the counter:
 `27.1`, `27.2`, …

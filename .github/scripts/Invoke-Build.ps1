@@ -12,7 +12,7 @@
          artefacts (tests, .github, .orchestration, .git, build outputs)
          behind.
       3. Write a BUILD_INFO.txt stamp containing the commit SHA, build date
-         and current VERSION for traceability.
+         and current version for traceability.
 
     The resulting directory is what the package step zips.
 
@@ -103,8 +103,7 @@ $stageFiles = @(
     'license.md',
     'LICENSE.md',
     'LICENSE',
-    'QUICKSTART.md',
-    'VERSION'
+    'version'
 )
 foreach ($file in $stageFiles) {
     $src = Join-Path $RepoRoot $file
@@ -116,7 +115,7 @@ foreach ($file in $stageFiles) {
 # --- 3. Stamp build info ---------------------------------------------------
 
 $version = 'unknown'
-$versionPath = Join-Path $RepoRoot 'VERSION'
+$versionPath = Join-Path $RepoRoot 'version'
 if (Test-Path -LiteralPath $versionPath) {
     $version = (Get-Content -LiteralPath $versionPath -Raw).Trim()
 }

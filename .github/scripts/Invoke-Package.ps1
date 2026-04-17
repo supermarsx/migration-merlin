@@ -5,7 +5,7 @@
 .DESCRIPTION
     Takes the directory produced by Invoke-Build.ps1 and compresses it into
     `<OutputDir>\MigrationMerlin-<version>.zip`. The version is read from the
-    VERSION file at the repo root (or -Version if supplied).
+    `version` file at the repo root (or -Version if supplied).
 
     If the destination zip already exists it is replaced.
 
@@ -16,7 +16,7 @@
     Directory to place the zip into (typically 'pkg'). Created if missing.
 
 .PARAMETER Version
-    Explicit version string; falls back to the repo VERSION file.
+    Explicit version string; falls back to the repo `version` file.
 
 .EXAMPLE
     PS> .\.github\scripts\Invoke-Package.ps1 -InputDir dist -OutputDir pkg
@@ -41,7 +41,7 @@ if (-not (Test-Path -LiteralPath $InputDir)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($Version)) {
-    $versionPath = Join-Path $RepoRoot 'VERSION'
+    $versionPath = Join-Path $RepoRoot 'version'
     if (Test-Path -LiteralPath $versionPath) {
         $Version = (Get-Content -LiteralPath $versionPath -Raw).Trim()
     }

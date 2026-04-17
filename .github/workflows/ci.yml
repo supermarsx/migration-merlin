@@ -1,11 +1,11 @@
-# Migration-Merlin CI/CD pipeline.
+# MigrationMerlin CI/CD pipeline.
 #
 # Every PR and every push to `main` runs three independent gates in
 # parallel: `lint`, `format`, `test`.
 #
 # On push to `main` (and only on main), success of the gates triggers a
 # linear chain: build -> package -> release. The release job bumps the
-# YY.N version in the VERSION file, commits it with `[skip ci]`, tags the
+# YY.N version in the `version` file, commits it with `[skip ci]`, tags the
 # commit, and creates a GitHub release containing the packaged zip.
 #
 # Design notes:
@@ -231,7 +231,7 @@ jobs:
           name: package
           path: pkg
 
-      - name: Bump VERSION
+      - name: Bump version
         id: ver
         shell: pwsh
         run: |
@@ -251,13 +251,13 @@ jobs:
           }
           Get-ChildItem pkg
 
-      - name: Commit VERSION bump and tag
+      - name: Commit version bump and tag
         shell: pwsh
         run: |
           $v = "${{ steps.ver.outputs.version }}"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add VERSION
+          git add version
           git commit -m "Bump version to $v [skip ci]"
           git tag $v
           git push origin HEAD:main --follow-tags
