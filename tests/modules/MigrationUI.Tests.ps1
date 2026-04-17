@@ -8,7 +8,7 @@
 #>
 
 BeforeAll {
-    $ModulePath = Join-Path $PSScriptRoot '..\..\MigrationUI.psm1'
+    $ModulePath = Join-Path $PSScriptRoot '..\..\modules\MigrationUI.psm1'
     Import-Module $ModulePath -Force
 }
 

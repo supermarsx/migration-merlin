@@ -5,7 +5,7 @@
 #>
 
 BeforeAll {
-    $script:ModulePath = (Resolve-Path (Join-Path $PSScriptRoot '..\..\ErrorHandling.psm1')).Path
+    $script:ModulePath = (Resolve-Path (Join-Path $PSScriptRoot '..\..\modules\ErrorHandling.psm1')).Path
     Import-Module $script:ModulePath -Force
 }
 

@@ -69,12 +69,12 @@ param(
 )
 
 # ---- Module imports / shared helpers ----
-Import-Module "$PSScriptRoot\MigrationConstants.psm1" -Force
-Import-Module "$PSScriptRoot\MigrationUI.psm1" -Force
-Import-Module "$PSScriptRoot\MigrationValidators.psm1" -Force
-Import-Module "$PSScriptRoot\ErrorHandling.psm1" -Force
-. "$PSScriptRoot\Invoke-Elevated.ps1"
-. "$PSScriptRoot\MigrationLogging.ps1"
+Import-Module "$PSScriptRoot\..\modules\MigrationConstants.psm1" -Force
+Import-Module "$PSScriptRoot\..\modules\MigrationUI.psm1" -Force
+Import-Module "$PSScriptRoot\..\modules\MigrationValidators.psm1" -Force
+Import-Module "$PSScriptRoot\..\modules\ErrorHandling.psm1" -Force
+. "$PSScriptRoot\..\modules\Invoke-Elevated.ps1"
+. "$PSScriptRoot\..\modules\MigrationLogging.ps1"
 
 # If the caller accepted the default literal, realign with the shared constant
 # so a future change to the constant flows through without touching this file.

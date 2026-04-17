@@ -9,7 +9,7 @@
 
 BeforeAll {
     Import-Module "$PSScriptRoot\TestHelpers.psm1" -Force
-    $ScriptPath = "$PSScriptRoot\..\post-migration-verify.ps1"
+    $ScriptPath = "$PSScriptRoot\..\scripts\post-migration-verify.ps1"
     $scriptContent = Get-Content $ScriptPath -Raw
 }
 
@@ -45,19 +45,19 @@ Describe "Script structure" {
     }
 
     It "Should import MigrationConstants module" {
-        $scriptContent | Should -Match 'Import-Module\s+"\$PSScriptRoot\\MigrationConstants\.psm1"'
+        $scriptContent | Should -Match 'Import-Module\s+"[^"]*MigrationConstants\.psm1"'
     }
 
     It "Should import MigrationUI module" {
-        $scriptContent | Should -Match 'Import-Module\s+"\$PSScriptRoot\\MigrationUI\.psm1"'
+        $scriptContent | Should -Match 'Import-Module\s+"[^"]*MigrationUI\.psm1"'
     }
 
     It "Should dot-source Invoke-Elevated.ps1" {
-        $scriptContent | Should -Match '\.\s+"\$PSScriptRoot\\Invoke-Elevated\.ps1"'
+        $scriptContent | Should -Match '\.\s+"[^"]*Invoke-Elevated\.ps1"'
     }
 
     It "Should dot-source MigrationLogging.ps1" {
-        $scriptContent | Should -Match '\.\s+"\$PSScriptRoot\\MigrationLogging\.ps1"'
+        $scriptContent | Should -Match '\.\s+"[^"]*MigrationLogging\.ps1"'
     }
 
     It "Should route parameter logging through Format-SafeParams" {
@@ -375,7 +375,7 @@ Describe "Output formatting" {
 # =============================================================================
 Describe "Post-migration-verify param-block validation (t1-e12)" {
     BeforeAll {
-        $scriptPath = (Resolve-Path "$PSScriptRoot\..\post-migration-verify.ps1").Path
+        $scriptPath = (Resolve-Path "$PSScriptRoot\..\scripts\post-migration-verify.ps1").Path
         $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
         $script:verifyParamsE12 = $ast.ParamBlock.Parameters
     }
@@ -388,7 +388,7 @@ Describe "Post-migration-verify param-block validation (t1-e12)" {
     }
 
     It "Verify script imports MigrationValidators module" {
-        $scriptPath = (Resolve-Path "$PSScriptRoot\..\post-migration-verify.ps1").Path
+        $scriptPath = (Resolve-Path "$PSScriptRoot\..\scripts\post-migration-verify.ps1").Path
         $content = Get-Content $scriptPath -Raw
         $content | Should -Match 'MigrationValidators\.psm1'
     }

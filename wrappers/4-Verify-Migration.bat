@@ -1,25 +1,22 @@
 @echo off
 setlocal EnableDelayedExpansion
-title Migration Merlin - Cleanup
-color 0E
+title Migration Merlin - Verify Migration
+color 0B
 
 set "SILENT="
-set "PS_SILENT="
 for %%A in (%*) do (
-    if /i "%%A"=="/silent" set "SILENT=1" & set "PS_SILENT=-NonInteractive"
-    if /i "%%A"=="-silent" set "SILENT=1" & set "PS_SILENT=-NonInteractive"
+    if /i "%%A"=="/silent" set "SILENT=1"
+    if /i "%%A"=="-silent" set "SILENT=1"
 )
 
 if not defined SILENT (
     echo.
     echo  ============================================================
-    echo     MIGRATION MERLIN - Cleanup
+    echo     MIGRATION MERLIN - Post-Migration Verification
     echo  ============================================================
     echo.
-    echo   This will remove:
-    echo     - The migration network share
-    echo     - Temporary firewall rules
-    echo     - Optionally, the migration store data
+    echo   This will compare the source PC inventory against
+    echo   the current destination PC state and report any gaps.
     echo.
 )
 
@@ -33,14 +30,14 @@ if %errorlevel% neq 0 (
 cd /d "%~dp0"
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "& '%~dp0destination-setup.ps1' -Cleanup %PS_SILENT%"
+    "& '%~dp0..\scripts\post-migration-verify.ps1'"
 
 set "EXIT_CODE=%errorlevel%"
 
 if not defined SILENT (
     echo.
     echo  ============================================================
-    echo   Cleanup complete!
+    echo   Verification complete!
     echo  ============================================================
     echo.
     echo   Press any key to exit...

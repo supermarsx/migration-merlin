@@ -38,7 +38,7 @@ if %errorlevel% neq 0 (
 cd /d "%~dp0"
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "& '%~dp0destination-setup.ps1' %PS_SILENT%"
+    "& '%~dp0..\scripts\destination-setup.ps1' %PS_SILENT%"
 
 set "EXIT_CODE=%errorlevel%"
 

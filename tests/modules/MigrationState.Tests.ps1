@@ -8,7 +8,7 @@
 #>
 
 BeforeAll {
-    $ModulePath = Join-Path $PSScriptRoot '..\..\MigrationState.psm1'
+    $ModulePath = Join-Path $PSScriptRoot '..\..\modules\MigrationState.psm1'
     Import-Module $ModulePath -Force
 }
 

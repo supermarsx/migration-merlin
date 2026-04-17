@@ -8,7 +8,7 @@
 #>
 
 BeforeAll {
-    $XmlPath = "$PSScriptRoot\..\custom-migration.xml"
+    $XmlPath = "$PSScriptRoot\..\config\custom-migration.xml"
     [xml]$script:MigXml = Get-Content $XmlPath -Raw
     $script:ns = @{ m = "http://www.microsoft.com/migration/1.0/migxmlext/custom" }
 }

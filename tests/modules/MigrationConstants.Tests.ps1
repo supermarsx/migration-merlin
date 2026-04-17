@@ -8,7 +8,7 @@
 #>
 
 BeforeAll {
-    $script:ModulePath = (Resolve-Path (Join-Path $PSScriptRoot '..\..\MigrationConstants.psm1')).Path
+    $script:ModulePath = (Resolve-Path (Join-Path $PSScriptRoot '..\..\modules\MigrationConstants.psm1')).Path
     Import-Module $script:ModulePath -Force
 
     # Pester v5 runs `It` blocks in a child scope — exported module variables

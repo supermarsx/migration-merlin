@@ -8,7 +8,7 @@
 #>
 
 BeforeAll {
-    $script:ModulePath = (Resolve-Path (Join-Path $PSScriptRoot '..\..\MigrationValidators.psm1')).Path
+    $script:ModulePath = (Resolve-Path (Join-Path $PSScriptRoot '..\..\modules\MigrationValidators.psm1')).Path
     Import-Module $script:ModulePath -Force
 }
 

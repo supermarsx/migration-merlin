@@ -16,16 +16,16 @@
 
 BeforeAll {
     Import-Module "$PSScriptRoot\TestHelpers.psm1" -Force
-    $ScriptPath = "$PSScriptRoot\..\destination-setup.ps1"
+    $ScriptPath = "$PSScriptRoot\..\scripts\destination-setup.ps1"
 
     # Load shared modules the script depends on so that dot-sourced functions
     # see Show-*, Start-TrackedProcess, Format-SafeParams, Request-Elevation, etc.
-    Import-Module "$PSScriptRoot\..\MigrationConstants.psm1" -Force
-    Import-Module "$PSScriptRoot\..\MigrationUI.psm1" -Force
-    Import-Module "$PSScriptRoot\..\USMTTools.psm1" -Force
-    Import-Module "$PSScriptRoot\..\MigrationState.psm1" -Force
-    . "$PSScriptRoot\..\Invoke-Elevated.ps1"
-    . "$PSScriptRoot\..\MigrationLogging.ps1"
+    Import-Module "$PSScriptRoot\..\modules\MigrationConstants.psm1" -Force
+    Import-Module "$PSScriptRoot\..\modules\MigrationUI.psm1" -Force
+    Import-Module "$PSScriptRoot\..\modules\USMTTools.psm1" -Force
+    Import-Module "$PSScriptRoot\..\modules\MigrationState.psm1" -Force
+    . "$PSScriptRoot\..\modules\Invoke-Elevated.ps1"
+    . "$PSScriptRoot\..\modules\MigrationLogging.ps1"
 
     # Extract function definitions via AST (skips auto-elevation, Main(), etc.)
     $tokens = $null; $parseErrors = $null
@@ -519,7 +519,7 @@ Describe "Invoke-USMTRestore" {
         It "Should verify script checks for .mig files" {
             # Invoke-USMTRestore calls exit 1 when no .mig files found,
             # which kills the Pester container. Verify structurally instead.
-            $destContent = Get-Content "$PSScriptRoot\..\destination-setup.ps1" -Raw
+            $destContent = Get-Content "$PSScriptRoot\..\scripts\destination-setup.ps1" -Raw
             $destContent | Should -Match '\.mig'
             $destContent | Should -Match 'No.*mig.*files|Ensure.*source.*completed'
         }

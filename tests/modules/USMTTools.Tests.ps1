@@ -2,7 +2,7 @@
 # t1-e3 / phase p1
 
 BeforeAll {
-    $script:ModuleRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+    $script:ModuleRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..\modules')).Path
     $script:ModulePath = Join-Path $script:ModuleRoot 'USMTTools.psm1'
     Import-Module $script:ModulePath -Force
 }

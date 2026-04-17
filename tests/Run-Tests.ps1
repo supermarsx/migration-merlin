@@ -29,7 +29,9 @@ if (-not $pester -or $pester.Version.Major -lt 5) {
 Import-Module Pester -MinimumVersion 5.0.0
 
 $testDir = $PSScriptRoot
-$testFiles = Get-ChildItem $testDir -Filter "*$Filter*.Tests.ps1" | Sort-Object Name
+$testFiles = Get-ChildItem $testDir -Recurse -Filter "*$Filter*.Tests.ps1" |
+    Where-Object { $_.FullName -notmatch '\\e2e\\' } |
+    Sort-Object FullName
 
 if ($testFiles.Count -eq 0) {
     Write-Host "No test files matching '$Filter' found in $testDir" -ForegroundColor Red

@@ -150,14 +150,14 @@ $ErrorActionPreference = "Stop"
 # SHARED MODULE IMPORTS (MigrationValidators + ErrorHandling added in
 # Phase 3 / t1-e12)
 # ============================================================================
-Import-Module "$PSScriptRoot\MigrationConstants.psm1" -Force
-Import-Module "$PSScriptRoot\MigrationUI.psm1" -Force
-Import-Module "$PSScriptRoot\USMTTools.psm1" -Force
-Import-Module "$PSScriptRoot\MigrationState.psm1" -Force
-Import-Module "$PSScriptRoot\MigrationValidators.psm1" -Force
-Import-Module "$PSScriptRoot\ErrorHandling.psm1" -Force
-. "$PSScriptRoot\Invoke-Elevated.ps1"
-. "$PSScriptRoot\MigrationLogging.ps1"
+Import-Module "$PSScriptRoot\..\modules\MigrationConstants.psm1" -Force
+Import-Module "$PSScriptRoot\..\modules\MigrationUI.psm1" -Force
+Import-Module "$PSScriptRoot\..\modules\USMTTools.psm1" -Force
+Import-Module "$PSScriptRoot\..\modules\MigrationState.psm1" -Force
+Import-Module "$PSScriptRoot\..\modules\MigrationValidators.psm1" -Force
+Import-Module "$PSScriptRoot\..\modules\ErrorHandling.psm1" -Force
+. "$PSScriptRoot\..\modules\Invoke-Elevated.ps1"
+. "$PSScriptRoot\..\modules\MigrationLogging.ps1"
 
 # ============================================================================
 # AUTO-ELEVATION (via Invoke-Elevated.ps1)

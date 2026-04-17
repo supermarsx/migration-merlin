@@ -52,13 +52,13 @@
     https://github.com/supermarsx/migration-merlin
 
 .LINK
-    .\destination-setup.ps1
+    .\scripts\destination-setup.ps1
 
 .LINK
-    .\source-capture.ps1
+    .\scripts\source-capture.ps1
 
 .LINK
-    .\post-migration-verify.ps1
+    .\scripts\post-migration-verify.ps1
 #>
 #Requires -Version 5.1
 [CmdletBinding()]
@@ -74,13 +74,13 @@ $ErrorActionPreference = 'Stop'
 # MigrationUI is imported for completeness; the TUI keeps its own ANSI
 # helpers because their colour/format contract differs from the module's
 # (see note in the HELPERS section below).
-Import-Module "$PSScriptRoot\MigrationConstants.psm1" -Force -ErrorAction SilentlyContinue
-Import-Module "$PSScriptRoot\MigrationUI.psm1" -Force -ErrorAction SilentlyContinue
+Import-Module "$PSScriptRoot\modules\MigrationConstants.psm1" -Force -ErrorAction SilentlyContinue
+Import-Module "$PSScriptRoot\modules\MigrationUI.psm1" -Force -ErrorAction SilentlyContinue
 # Phase 3 / t1-e12: shared validators exposed in the TUI's scope so future
 # interactive input handling can reuse Test-UncPath / Test-ProfileName etc.
-Import-Module "$PSScriptRoot\MigrationValidators.psm1" -Force -ErrorAction SilentlyContinue
-. "$PSScriptRoot\Invoke-Elevated.ps1"
-. "$PSScriptRoot\MigrationLogging.ps1"
+Import-Module "$PSScriptRoot\modules\MigrationValidators.psm1" -Force -ErrorAction SilentlyContinue
+. "$PSScriptRoot\modules\Invoke-Elevated.ps1"
+. "$PSScriptRoot\modules\MigrationLogging.ps1"
 
 # ════════════════════════════════════════════════════════════════
 #  BOOTSTRAP
@@ -114,6 +114,7 @@ Request-Elevation -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 # Handle UNC paths — PS 5.1 can't Set-Location to \\server\share
 $script:ScriptRoot = $PSScriptRoot
+$script:ScriptsDir = Join-Path $PSScriptRoot 'scripts'
 $script:IsUNC = $PSScriptRoot -match '^\\\\'
 if (-not $script:IsUNC) {
     Set-Location $PSScriptRoot
@@ -616,7 +617,7 @@ function Show-Summary([System.Collections.Specialized.OrderedDictionary]$Fields)
 
 function Invoke-Step([string]$Label, [string]$Script, [string]$ParamBlock) {
     $tmp = Join-Path $env:TEMP "mw-run-$([System.IO.Path]::GetRandomFileName()).ps1"
-    $fullScript = Join-Path $script:ScriptRoot $Script
+    $fullScript = Join-Path $script:ScriptsDir $Script
 
     $body = @"
 `$ErrorActionPreference = 'Continue'

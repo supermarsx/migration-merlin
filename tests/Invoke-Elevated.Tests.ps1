@@ -6,7 +6,7 @@
 
 BeforeAll {
     $ScriptRoot = Split-Path $PSScriptRoot -Parent
-    $InvokeElevated = Join-Path $ScriptRoot 'Invoke-Elevated.ps1'
+    $InvokeElevated = Join-Path $ScriptRoot 'modules\Invoke-Elevated.ps1'
 
     # Dot-source in the test's scope so all public functions are available
     . $InvokeElevated

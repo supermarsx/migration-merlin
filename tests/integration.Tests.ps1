@@ -344,19 +344,19 @@ Describe "USMT exit code interpretation" {
 # =============================================================================
 Describe "Project file structure" {
     It "Should have destination-setup.ps1" {
-        Test-Path "$PSScriptRoot\..\destination-setup.ps1" | Should -BeTrue
+        Test-Path "$PSScriptRoot\..\scripts\destination-setup.ps1" | Should -BeTrue
     }
 
     It "Should have source-capture.ps1" {
-        Test-Path "$PSScriptRoot\..\source-capture.ps1" | Should -BeTrue
+        Test-Path "$PSScriptRoot\..\scripts\source-capture.ps1" | Should -BeTrue
     }
 
     It "Should have custom-migration.xml" {
-        Test-Path "$PSScriptRoot\..\custom-migration.xml" | Should -BeTrue
+        Test-Path "$PSScriptRoot\..\config\custom-migration.xml" | Should -BeTrue
     }
 
     It "Should have post-migration-verify.ps1" {
-        Test-Path "$PSScriptRoot\..\post-migration-verify.ps1" | Should -BeTrue
+        Test-Path "$PSScriptRoot\..\scripts\post-migration-verify.ps1" | Should -BeTrue
     }
 
     It "Should have QUICKSTART.md" {
@@ -466,7 +466,7 @@ Describe "Transfer speed calculation" {
 # =============================================================================
 Describe "Scenario: UAC elevation cancelled" {
     BeforeAll {
-        . "$script:RepoRoot\Invoke-Elevated.ps1"
+        . "$script:RepoRoot\modules\Invoke-Elevated.ps1"
     }
 
     It "Test-IsAdmin returns a boolean (used to gate Request-Elevation)" {
@@ -493,7 +493,7 @@ Describe "Scenario: UAC elevation cancelled" {
 # =============================================================================
 Describe "Scenario: Destination share unreachable" {
     BeforeAll {
-        Import-Module "$script:RepoRoot\MigrationValidators.psm1" -Force
+        Import-Module "$script:RepoRoot\modules\MigrationValidators.psm1" -Force
     }
     AfterAll {
         Remove-Module MigrationValidators -Force -ErrorAction SilentlyContinue
@@ -539,7 +539,7 @@ Describe "Scenario: ScanState exit code 26 surfaces" {
         # the AST and re-emit them into a temp .ps1. This avoids running the
         # script's trailing `Main` call, which would fail catastrophically
         # outside of an elevated session with a real share.
-        $scriptPath = "$script:RepoRoot\source-capture.ps1"
+        $scriptPath = "$script:RepoRoot\scripts\source-capture.ps1"
         $script:scanStateFnAvailable = $false
         try {
             $tokens = $null; $parseErrors = $null
@@ -663,7 +663,7 @@ Describe "Scenario: Encryption key absent in non-interactive mode" {
 # =============================================================================
 Describe "Scenario: Invalid UNC path rejected" {
     BeforeAll {
-        Import-Module "$script:RepoRoot\MigrationValidators.psm1" -Force
+        Import-Module "$script:RepoRoot\modules\MigrationValidators.psm1" -Force
     }
     AfterAll {
         Remove-Module MigrationValidators -Force -ErrorAction SilentlyContinue

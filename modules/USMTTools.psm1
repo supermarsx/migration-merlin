@@ -45,7 +45,7 @@ function _Get-UsmtDefaults {
     }
     return @{
         SearchPaths = @(
-            "$PSScriptRoot\USMT-Tools"
+            (Join-Path (Split-Path $PSScriptRoot -Parent) 'USMT-Tools')
             "$env:TEMP\USMT-Tools"
             "${env:ProgramFiles(x86)}\Windows Kits\10\Assessment and Deployment Kit\User State Migration Tool"
             "${env:ProgramFiles}\Windows Kits\10\Assessment and Deployment Kit\User State Migration Tool"
@@ -157,7 +157,8 @@ function Expand-BundledUSMT {
     .PARAMETER AdditionalZipSearchPaths
         Extra locations to probe for the zip (e.g. a MigrationFolder).
     .PARAMETER ExtractTarget
-        Root extraction directory. Defaults to $PSScriptRoot\USMT-Tools.
+        Root extraction directory. Defaults to the repo-root USMT-Tools directory
+        (parent of $PSScriptRoot, since this module lives in modules/).
     .OUTPUTS
         [string] path to the architecture-specific extracted directory, or $null.
     #>
@@ -173,8 +174,11 @@ function Expand-BundledUSMT {
     $zipRoot  = $defaults.ZipInternalRoot
 
     $zipSearchPaths = @()
-    $zipSearchPaths += (Join-Path $PSScriptRoot $zipName)
+    # Module lives in modules/, so the repo root (where the bundled zip is
+    # expected) is one level up. Probe the repo root first, then grandparent
+    # as a legacy fallback, then TEMP.
     $zipSearchPaths += (Join-Path (Split-Path $PSScriptRoot -Parent) $zipName)
+    $zipSearchPaths += (Join-Path (Split-Path (Split-Path $PSScriptRoot -Parent) -Parent) $zipName)
     $zipSearchPaths += (Join-Path $env:TEMP $zipName)
     foreach ($p in $AdditionalZipSearchPaths) {
         if ($p) { $zipSearchPaths += (Join-Path $p $zipName) }
@@ -193,7 +197,7 @@ function Expand-BundledUSMT {
     _Write-UsmtLog "Found bundled USMT zip: $zipPath (${zipSizeMB} MB)"
 
     if (-not $ExtractTarget) {
-        $ExtractTarget = Join-Path $PSScriptRoot 'USMT-Tools'
+        $ExtractTarget = Join-Path (Split-Path $PSScriptRoot -Parent) 'USMT-Tools'
     }
     $arch       = _Get-UsmtArchitecture
     $archTarget = Join-Path $ExtractTarget $arch

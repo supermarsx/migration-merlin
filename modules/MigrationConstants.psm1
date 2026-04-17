@@ -9,10 +9,11 @@
     A `Get-MigrationConstant` helper supports dotted-path lookup (e.g.
     `Get-MigrationConstant 'USMT.ZipName'`).
 
-    NOTE: `$PSScriptRoot` at module-load time resolves to the directory that
-    contains MigrationConstants.psm1, which is the same directory as the main
-    scripts. So `"$PSScriptRoot\USMT-Tools"` in USMT.SearchPaths points at the
-    toolkit directory, matching the original intent of the callers.
+    NOTE: `$PSScriptRoot` at module-load time resolves to the `modules/`
+    directory that contains MigrationConstants.psm1. The bundled USMT-Tools
+    directory lives at the repo root (one level up), so USMT.SearchPaths
+    rebases its default to `(Split-Path $PSScriptRoot -Parent)\USMT-Tools`
+    to continue pointing at the toolkit directory.
 .NOTES
     Exports:
       - $MigrationConstants   (read-only hashtable)
@@ -25,7 +26,7 @@ Set-StrictMode -Version Latest
 # Build the constants hashtable
 # ---------------------------------------------------------------------------
 $__USMTSearchPaths = @(
-    "$PSScriptRoot\USMT-Tools"
+    (Join-Path (Split-Path $PSScriptRoot -Parent) 'USMT-Tools')
     "$env:TEMP\USMT-Tools"
     "${env:ProgramFiles(x86)}\Windows Kits\10\Assessment and Deployment Kit\User State Migration Tool"
     "${env:ProgramFiles}\Windows Kits\10\Assessment and Deployment Kit\User State Migration Tool"

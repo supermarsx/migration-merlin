@@ -23,15 +23,15 @@
 
 BeforeAll {
     Import-Module "$PSScriptRoot\TestHelpers.psm1" -Force
-    $ScriptPath = "$PSScriptRoot\..\source-capture.ps1"
+    $ScriptPath = "$PSScriptRoot\..\scripts\source-capture.ps1"
 
     # Import the supporting modules so the dot-sourced functions below find
     # their dependencies (Show-Step, Start-TrackedProcess, etc.).
-    Import-Module "$PSScriptRoot\..\MigrationConstants.psm1" -Force
-    Import-Module "$PSScriptRoot\..\MigrationUI.psm1" -Force
-    Import-Module "$PSScriptRoot\..\USMTTools.psm1" -Force
-    Import-Module "$PSScriptRoot\..\MigrationState.psm1" -Force
-    . "$PSScriptRoot\..\MigrationLogging.ps1"
+    Import-Module "$PSScriptRoot\..\modules\MigrationConstants.psm1" -Force
+    Import-Module "$PSScriptRoot\..\modules\MigrationUI.psm1" -Force
+    Import-Module "$PSScriptRoot\..\modules\USMTTools.psm1" -Force
+    Import-Module "$PSScriptRoot\..\modules\MigrationState.psm1" -Force
+    . "$PSScriptRoot\..\modules\MigrationLogging.ps1"
 
     # Extract only function definitions using AST to avoid script-level code
     # that conflicts with Pester's internal container management.
@@ -74,7 +74,7 @@ AfterAll {
 # =============================================================================
 Describe "Source module integration" {
     BeforeAll {
-        $script:srcContent = Get-Content "$PSScriptRoot\..\source-capture.ps1" -Raw
+        $script:srcContent = Get-Content "$PSScriptRoot\..\scripts\source-capture.ps1" -Raw
     }
 
     It "Should import MigrationConstants module" {
@@ -90,11 +90,11 @@ Describe "Source module integration" {
     }
 
     It "Should dot-source Invoke-Elevated.ps1" {
-        $script:srcContent | Should -Match '\.\s+"\$PSScriptRoot\\Invoke-Elevated\.ps1"'
+        $script:srcContent | Should -Match '\.\s+"[^"]*Invoke-Elevated\.ps1"'
     }
 
     It "Should dot-source MigrationLogging.ps1" {
-        $script:srcContent | Should -Match '\.\s+"\$PSScriptRoot\\MigrationLogging\.ps1"'
+        $script:srcContent | Should -Match '\.\s+"[^"]*MigrationLogging\.ps1"'
     }
 
     It "Should use Request-Elevation from Invoke-Elevated.ps1" {
@@ -213,13 +213,13 @@ Describe "Get-MigrationProfiles" {
             $b | Should -BeIn $builtins  # Confirms these ARE filtered
         }
         # Verify the script contains the filter
-        $srcContent = Get-Content "$PSScriptRoot\..\source-capture.ps1" -Raw
+        $srcContent = Get-Content "$PSScriptRoot\..\scripts\source-capture.ps1" -Raw
         $srcContent | Should -Match '"Public".*"Default"'
     }
 
     It "Should exit when no profiles match filters" {
         # Verify the exit path exists in source code
-        $srcContent = Get-Content "$PSScriptRoot\..\source-capture.ps1" -Raw
+        $srcContent = Get-Content "$PSScriptRoot\..\scripts\source-capture.ps1" -Raw
         $srcContent | Should -Match 'No user profiles selected'
     }
 
@@ -398,7 +398,7 @@ Describe "Backup-ExtraData" {
         It "Uses -ErrorAction Stop on Copy-Item (source-capture.ps1 content check)" {
             # Ensure the bug-fix token replacement stuck: inside Backup-ExtraData's
             # try block, Copy-Item must use -ErrorAction Stop so the catch runs.
-            $src = Get-Content "$PSScriptRoot\..\source-capture.ps1" -Raw
+            $src = Get-Content "$PSScriptRoot\..\scripts\source-capture.ps1" -Raw
             $src | Should -Match 'Copy-Item\s+-Path\s+\$item\.Src[^\r\n]*-ErrorAction\s+Stop'
             $src | Should -Not -Match 'Copy-Item\s+-Path\s+\$item\.Src[^\r\n]*-ErrorAction\s+SilentlyContinue'
         }
@@ -824,7 +824,7 @@ Describe "Disconnect-Share" {
 # Test connectivity logic structurally.
 Describe "Connect-DestinationShare structure" {
     BeforeAll {
-        $script:srcContent = Get-Content "$PSScriptRoot\..\source-capture.ps1" -Raw
+        $script:srcContent = Get-Content "$PSScriptRoot\..\scripts\source-capture.ps1" -Raw
     }
 
     It "Should test connectivity with ping" {
@@ -861,22 +861,22 @@ Describe "Test-Prerequisites structure (source)" {
     }
 
     It "Function should call Get-CimInstance for OS info" {
-        $srcContent = Get-Content "$PSScriptRoot\..\source-capture.ps1" -Raw
+        $srcContent = Get-Content "$PSScriptRoot\..\scripts\source-capture.ps1" -Raw
         $srcContent | Should -Match 'Win32_OperatingSystem'
     }
 
     It "Function should call Get-CimInstance for user profiles" {
-        $srcContent = Get-Content "$PSScriptRoot\..\source-capture.ps1" -Raw
+        $srcContent = Get-Content "$PSScriptRoot\..\scripts\source-capture.ps1" -Raw
         $srcContent | Should -Match 'Win32_UserProfile'
     }
 
     It "Function should calculate profile sizes" {
-        $srcContent = Get-Content "$PSScriptRoot\..\source-capture.ps1" -Raw
+        $srcContent = Get-Content "$PSScriptRoot\..\scripts\source-capture.ps1" -Raw
         $srcContent | Should -Match 'Measure-Object.*Property Length.*Sum'
     }
 
     It "Function should display total profile data" {
-        $srcContent = Get-Content "$PSScriptRoot\..\source-capture.ps1" -Raw
+        $srcContent = Get-Content "$PSScriptRoot\..\scripts\source-capture.ps1" -Raw
         $srcContent | Should -Match 'Total profile data'
     }
 }

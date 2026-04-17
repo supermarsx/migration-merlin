@@ -33,10 +33,10 @@ BeforeAll {
     Import-Module "$PSScriptRoot\TestHelpers.psm1" -Force
 
     $ScriptRoot    = Split-Path $PSScriptRoot -Parent
-    $SourceScript  = "$ScriptRoot\source-capture.ps1"
-    $DestScript    = "$ScriptRoot\destination-setup.ps1"
+    $SourceScript  = "$ScriptRoot\scripts\source-capture.ps1"
+    $DestScript    = "$ScriptRoot\scripts\destination-setup.ps1"
     $TuiScript     = "$ScriptRoot\Migration-Merlin.ps1"
-    $ConstantsPath = "$ScriptRoot\MigrationConstants.psm1"
+    $ConstantsPath = "$ScriptRoot\modules\MigrationConstants.psm1"
 
     $srcContent  = Get-Content $SourceScript  -Raw
     $destContent = Get-Content $DestScript    -Raw
@@ -89,11 +89,11 @@ AfterAll {
 
 Describe 'Script -> USMTTools module wiring' {
     It 'source-capture.ps1 imports USMTTools.psm1' {
-        $srcContent | Should -Match 'Import-Module\s+"\$PSScriptRoot\\USMTTools\.psm1"'
+        $srcContent | Should -Match 'Import-Module\s+"[^"]*USMTTools\.psm1"'
     }
 
     It 'destination-setup.ps1 imports USMTTools.psm1' {
-        $destContent | Should -Match 'Import-Module\s+"\$PSScriptRoot\\USMTTools\.psm1"'
+        $destContent | Should -Match 'Import-Module\s+"[^"]*USMTTools\.psm1"'
     }
 
     It 'source-capture.ps1 calls Install-USMT for the source side (scanstate.exe)' {

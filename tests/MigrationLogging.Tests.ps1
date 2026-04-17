@@ -6,7 +6,7 @@
 #>
 
 BeforeAll {
-    $script:ScriptPath = Join-Path $PSScriptRoot '..\MigrationLogging.ps1'
+    $script:ScriptPath = Join-Path $PSScriptRoot '..\modules\MigrationLogging.ps1'
     . $script:ScriptPath
 
     # Initialize logging into a temp dir so Write-Log has somewhere to write.

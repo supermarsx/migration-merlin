@@ -141,7 +141,7 @@ Log ''
 Log '── TEST 2: DESTINATION SETUP ──' 'STEP'
 
 if (Test-Path $MigFolder) { Remove-Item $MigFolder -Recurse -Force }
-$r = Run-Script 'destination-setup.ps1' "-MigrationFolder '$MigFolder' -ShareName '$ShareName' -NonInteractive"
+$r = Run-Script 'scripts\destination-setup.ps1' "-MigrationFolder '$MigFolder' -ShareName '$ShareName' -NonInteractive"
 Log "  Exit code: $($r.ExitCode)"
 
 Assert 'destination-setup exits 0' ($r.ExitCode -eq 0)
@@ -182,7 +182,7 @@ Log ''
 # ═════════════════════════════════════════════════════════════
 Log '── TEST 3: SOURCE CAPTURE (DRY RUN) ──' 'STEP'
 
-$r = Run-Script 'source-capture.ps1' "-DestinationShare '$uncPath' -DryRun -NonInteractive"
+$r = Run-Script 'scripts\source-capture.ps1' "-DestinationShare '$uncPath' -DryRun -NonInteractive"
 Log "  Exit code: $($r.ExitCode)"
 
 Assert 'Dry run exits 0' ($r.ExitCode -eq 0)
@@ -223,7 +223,7 @@ $favDir = Join-Path $env:USERPROFILE 'Favorites'
 if (-not (Test-Path $favDir)) { New-Item $favDir -ItemType Directory -Force | Out-Null }
 'E2E bookmark test' | Set-Content (Join-Path $favDir 'e2e-bookmark.txt')
 
-$r = Run-Script 'source-capture.ps1' "-DestinationShare '$uncPath' -NonInteractive -IncludeUsers '$TestUser'"
+$r = Run-Script 'scripts\source-capture.ps1' "-DestinationShare '$uncPath' -NonInteractive -IncludeUsers '$TestUser'"
 Log "  Exit code: $($r.ExitCode)"
 
 Assert 'Capture exits 0' ($r.ExitCode -eq 0)
@@ -268,7 +268,7 @@ Log '── TEST 5: CAPTURE WITH EXTRAS ──' 'STEP'
 # Clean USMT store for fresh capture
 if (Test-Path $usmtStore) { Remove-Item "$usmtStore\*" -Recurse -Force -ErrorAction SilentlyContinue }
 
-$r = Run-Script 'source-capture.ps1' "-DestinationShare '$uncPath' -ExtraData -NonInteractive -IncludeUsers '$TestUser'"
+$r = Run-Script 'scripts\source-capture.ps1' "-DestinationShare '$uncPath' -ExtraData -NonInteractive -IncludeUsers '$TestUser'"
 Log "  Exit code: $($r.ExitCode)"
 
 Assert 'Capture with extras exits 0' ($r.ExitCode -eq 0)
@@ -295,7 +295,7 @@ Log '── TEST 6: CAPTURE WITH ENCRYPTION ──' 'STEP'
 $encStore = Join-Path $MigFolder 'USMT-Encrypted'
 New-Item $encStore -ItemType Directory -Force | Out-Null
 
-$r = Run-Script 'source-capture.ps1' "-DestinationShare '$uncPath' -EncryptStore -EncryptionKey 'E2ETestKey123!' -NonInteractive -IncludeUsers '$TestUser'"
+$r = Run-Script 'scripts\source-capture.ps1' "-DestinationShare '$uncPath' -EncryptStore -EncryptionKey 'E2ETestKey123!' -NonInteractive -IncludeUsers '$TestUser'"
 Log "  Exit code: $($r.ExitCode)"
 
 Assert 'Encrypted capture exits 0' ($r.ExitCode -eq 0)
@@ -312,7 +312,7 @@ Log '── TEST 7: RESTORE ──' 'STEP'
 if (Test-Path $testDataDir) { Remove-Item $testDataDir -Recurse -Force }
 if (Test-Path (Join-Path $desktopDir 'e2e-test.txt')) { Remove-Item (Join-Path $desktopDir 'e2e-test.txt') -Force }
 
-$r = Run-Script 'destination-setup.ps1' "-MigrationFolder '$MigFolder' -RestoreOnly -NonInteractive"
+$r = Run-Script 'scripts\destination-setup.ps1' "-MigrationFolder '$MigFolder' -RestoreOnly -NonInteractive"
 Log "  Exit code: $($r.ExitCode)"
 
 Assert 'Restore exits 0 or 1 (partial)' ($r.ExitCode -le 1)
@@ -343,7 +343,7 @@ Log ''
 # ═════════════════════════════════════════════════════════════
 Log '── TEST 8: VERIFY ──' 'STEP'
 
-$r = Run-Script 'post-migration-verify.ps1' "-MigrationFolder '$MigFolder'"
+$r = Run-Script 'scripts\post-migration-verify.ps1' "-MigrationFolder '$MigFolder'"
 Log "  Exit code: $($r.ExitCode)"
 
 Assert 'Verify exits 0' ($r.ExitCode -eq 0)
@@ -360,7 +360,7 @@ Log ''
 # ═════════════════════════════════════════════════════════════
 Log '── TEST 9: CUSTOM MIGRATION XML ──' 'STEP'
 
-$xmlPath = Join-Path $ToolkitRoot 'custom-migration.xml'
+$xmlPath = Join-Path $ToolkitRoot 'config\custom-migration.xml'
 Assert 'custom-migration.xml exists' (Test-Path $xmlPath)
 
 if (Test-Path $xmlPath) {
@@ -386,7 +386,7 @@ Log ''
 # ═════════════════════════════════════════════════════════════
 Log '── TEST 10: CLEANUP ──' 'STEP'
 
-$r = Run-Script 'destination-setup.ps1' "-MigrationFolder '$MigFolder' -Cleanup -NonInteractive"
+$r = Run-Script 'scripts\destination-setup.ps1' "-MigrationFolder '$MigFolder' -Cleanup -NonInteractive"
 Log "  Exit code: $($r.ExitCode)"
 
 Assert 'Cleanup exits 0' ($r.ExitCode -eq 0)
@@ -408,7 +408,7 @@ Log ''
 Log '── TEST 11: FULL CYCLE ──' 'STEP'
 
 # Step 1
-$r1 = Run-Script 'destination-setup.ps1' "-MigrationFolder '$MigFolder' -ShareName '$ShareName' -NonInteractive"
+$r1 = Run-Script 'scripts\destination-setup.ps1' "-MigrationFolder '$MigFolder' -ShareName '$ShareName' -NonInteractive"
 Assert 'Full cycle: setup exits 0' ($r1.ExitCode -eq 0)
 
 # Create fresh test data
@@ -417,22 +417,22 @@ New-Item $cycleData -ItemType Directory -Force | Out-Null
 'Full cycle test content' | Set-Content (Join-Path $cycleData 'cycle-doc.txt')
 
 # Step 2
-$r2 = Run-Script 'source-capture.ps1' "-DestinationShare '$uncPath' -NonInteractive -IncludeUsers '$TestUser'"
+$r2 = Run-Script 'scripts\source-capture.ps1' "-DestinationShare '$uncPath' -NonInteractive -IncludeUsers '$TestUser'"
 Assert 'Full cycle: capture exits 0' ($r2.ExitCode -eq 0)
 
 # Delete test data
 Remove-Item $cycleData -Recurse -Force -ErrorAction SilentlyContinue
 
 # Step 3
-$r3 = Run-Script 'destination-setup.ps1' "-MigrationFolder '$MigFolder' -RestoreOnly -NonInteractive"
+$r3 = Run-Script 'scripts\destination-setup.ps1' "-MigrationFolder '$MigFolder' -RestoreOnly -NonInteractive"
 Assert 'Full cycle: restore exits 0 or 1' ($r3.ExitCode -le 1)
 
 # Step 4
-$r4 = Run-Script 'post-migration-verify.ps1' "-MigrationFolder '$MigFolder'"
+$r4 = Run-Script 'scripts\post-migration-verify.ps1' "-MigrationFolder '$MigFolder'"
 Assert 'Full cycle: verify exits 0' ($r4.ExitCode -eq 0)
 
 # Step 5
-$r5 = Run-Script 'destination-setup.ps1' "-MigrationFolder '$MigFolder' -Cleanup -NonInteractive"
+$r5 = Run-Script 'scripts\destination-setup.ps1' "-MigrationFolder '$MigFolder' -Cleanup -NonInteractive"
 Assert 'Full cycle: cleanup exits 0' ($r5.ExitCode -eq 0)
 Assert 'Full cycle: folder gone' (-not (Test-Path $MigFolder))
 
@@ -444,14 +444,14 @@ Log ''
 Log '── TEST 12: ERROR HANDLING ──' 'STEP'
 
 # Capture with bad share
-$rBad = Run-Script 'source-capture.ps1' "-DestinationShare '\\192.0.2.1\FakeShare' -NonInteractive -SkipUSMTInstall"
+$rBad = Run-Script 'scripts\source-capture.ps1' "-DestinationShare '\\192.0.2.1\FakeShare' -NonInteractive -SkipUSMTInstall"
 Assert 'Bad share fails gracefully' ($rBad.ExitCode -ne 0)
 Assert 'Bad share shows error' ($rBad.Output -match 'error|fail|not.*reachable|cannot')
 
 # Restore with no data
 $emptyFolder = 'C:\E2E-Empty'
 New-Item $emptyFolder -ItemType Directory -Force | Out-Null
-$rEmpty = Run-Script 'destination-setup.ps1' "-MigrationFolder '$emptyFolder' -RestoreOnly -NonInteractive"
+$rEmpty = Run-Script 'scripts\destination-setup.ps1' "-MigrationFolder '$emptyFolder' -RestoreOnly -NonInteractive"
 Assert 'Restore with no data fails gracefully' ($rEmpty.ExitCode -ne 0 -or $rEmpty.Output -match 'not found|no.*store|error')
 Remove-Item $emptyFolder -Recurse -Force -ErrorAction SilentlyContinue
 

@@ -82,7 +82,7 @@ if not defined SILENT (
 )
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command ^
-    "& '%~dp0source-capture.ps1' -DestinationShare '!SHARE!' !EXTRA_FLAG! !PS_SILENT!"
+    "& '%~dp0..\scripts\source-capture.ps1' -DestinationShare '!SHARE!' !EXTRA_FLAG! !PS_SILENT!"
 
 set "EXIT_CODE=%errorlevel%"
 
