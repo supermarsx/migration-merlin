@@ -3,27 +3,28 @@
 # Every PR and every push to `main` runs three independent gates in
 # parallel: `lint`, `format`, `test`.
 #
-# On push to `main` (and only on main), success of the gates triggers a
-# linear chain: build -> package -> release. The release job bumps the
-# YY.N version in the `version` file, commits it with `[skip ci]`, tags the
-# commit, and creates a GitHub release containing the packaged zip.
+# On push to `main` (and only on main), success of the gates triggers
+# a single `release` job that bumps the `version` file, builds, packages,
+# tags, pushes, and publishes a GitHub release.
 #
 # Design notes:
-#   * Runner is `windows-latest` for authenticity -- this repo is a Windows
-#     USMT wrapper and its Pester tests (even when mocked) expect a Windows
-#     host.
+#   * Runner is `windows-latest` for authenticity -- this repo is a
+#     Windows USMT wrapper and its Pester tests expect a Windows host.
 #   * PowerShell 7 (`pwsh`) is used everywhere; it ships with the runner.
-#   * PSScriptAnalyzer + Pester are cached between runs keyed on the hash
-#     of *.ps1/*.psm1 so module re-installs are rare.
-#   * The `format` job is advisory (continue-on-error) on purpose: we have
-#     not enforced Invoke-Formatter output on the existing tree yet, and
-#     failing the build on a whitespace drift would be noise. Flip this
-#     switch to `false` once the codebase has been formatted once.
-#   * The version-bump commit message contains `[skip ci]` so the push it
-#     generates does NOT recursively trigger another release.
-#   * `softprops/action-gh-release@v2` uses the repository's GITHUB_TOKEN.
-#     If a branch-protection rule blocks github-actions from pushing to
-#     `main`, swap this for a PAT stored in a secret called RELEASE_TOKEN.
+#   * Only one Node-based action is used: `actions/checkout@v5` (Node 24).
+#     Module installation happens in-line via `Install-Module` each run;
+#     release publishing uses the runner's pre-installed `gh` CLI via
+#     shell steps rather than a Node-based release action.
+#   * The `format` job is advisory (continue-on-error) on purpose: we
+#     have not enforced Invoke-Formatter output on the existing tree
+#     yet. Flip to `false` once the codebase has been formatted once.
+#   * The version-bump commit message contains `[skip ci]` so the push
+#     it generates does NOT recursively trigger another release.
+#   * Tags are annotated (`git tag -a`) and pushed explicitly. The
+#     default `GITHUB_TOKEN` is sufficient unless branch-protection on
+#     `main` blocks github-actions[bot] pushes; in that case, add a PAT
+#     secret named `RELEASE_TOKEN` and swap it into the `token:` field
+#     of `actions/checkout` in the `release` job.
 
 name: ci
 
@@ -45,22 +46,12 @@ jobs:
     name: Lint (PSScriptAnalyzer)
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Cache PowerShell modules
-        uses: actions/cache@v4
-        with:
-          path: ~\Documents\PowerShell\Modules
-          key: psmodules-analyzer-${{ hashFiles('**/*.ps1', '**/*.psm1', 'PSScriptAnalyzerSettings.psd1') }}
-          restore-keys: |
-            psmodules-analyzer-
+      - uses: actions/checkout@v5
 
       - name: Install PSScriptAnalyzer
         shell: pwsh
         run: |
-          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
-            Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -ErrorAction Stop
-          }
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -ErrorAction Stop
           Import-Module PSScriptAnalyzer -ErrorAction Stop
           (Get-Module PSScriptAnalyzer).Version.ToString()
 
@@ -89,22 +80,12 @@ jobs:
     runs-on: windows-latest
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Cache PowerShell modules
-        uses: actions/cache@v4
-        with:
-          path: ~\Documents\PowerShell\Modules
-          key: psmodules-analyzer-${{ hashFiles('**/*.ps1', '**/*.psm1', 'PSScriptAnalyzerSettings.psd1') }}
-          restore-keys: |
-            psmodules-analyzer-
+      - uses: actions/checkout@v5
 
       - name: Install PSScriptAnalyzer
         shell: pwsh
         run: |
-          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
-            Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -ErrorAction Stop
-          }
+          Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -ErrorAction Stop
           Import-Module PSScriptAnalyzer -ErrorAction Stop
 
       - name: Check Invoke-Formatter drift
@@ -139,23 +120,13 @@ jobs:
     name: Pester tests
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Cache PowerShell modules
-        uses: actions/cache@v4
-        with:
-          path: ~\Documents\PowerShell\Modules
-          key: psmodules-pester-${{ hashFiles('tests/**/*.ps1', 'tests/**/*.psm1') }}
-          restore-keys: |
-            psmodules-pester-
+      - uses: actions/checkout@v5
 
       - name: Install Pester 5
         shell: pwsh
         run: |
-          $needed = $true
           $existing = Get-Module Pester -ListAvailable | Where-Object { $_.Version -ge [version]'5.5.0' }
-          if ($existing) { $needed = $false }
-          if ($needed) {
+          if (-not $existing) {
             Install-Module Pester -Force -Scope CurrentUser -SkipPublisherCheck -MinimumVersion 5.5.0 -ErrorAction Stop
           }
           (Get-Module Pester -ListAvailable | Sort-Object Version -Descending | Select-Object -First 1).Version.ToString()
@@ -164,72 +135,18 @@ jobs:
         shell: pwsh
         run: .\tests\Run-Tests.ps1 -CI -Output Normal
 
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: pester-results
-          path: tests/test-results.xml
-          if-no-files-found: ignore
-
-  build:
-    name: Build
+  release:
+    name: Build, package, release
     runs-on: windows-latest
     needs: [lint, format, test]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Invoke-Build
-        shell: pwsh
-        run: .\.github\scripts\Invoke-Build.ps1 -OutputDir dist
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: build
-          path: dist/
-
-  package:
-    name: Package
-    runs-on: windows-latest
-    needs: build
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Download build artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: build
-          path: dist
-
-      - name: Invoke-Package
-        shell: pwsh
-        run: .\.github\scripts\Invoke-Package.ps1 -InputDir dist -OutputDir pkg
-
-      - name: Upload package artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: package
-          path: pkg/
-
-  release:
-    name: Release
-    runs-on: windows-latest
-    needs: package
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Download package artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: package
-          path: pkg
 
       - name: Bump version
         id: ver
@@ -239,19 +156,20 @@ jobs:
           "version=$next" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           Write-Host "Next version: $next"
 
-      - name: Rename package artifact to match new version
+      - name: Build
+        shell: pwsh
+        run: .\.github\scripts\Invoke-Build.ps1 -OutputDir dist
+
+      - name: Package
         shell: pwsh
         run: |
-          $v = "${{ steps.ver.outputs.version }}"
-          $target = "pkg\MigrationMerlin-$v.zip"
-          Get-ChildItem pkg\*.zip | ForEach-Object {
-            if ($_.FullName -ne (Resolve-Path $target -ErrorAction SilentlyContinue).Path) {
-              Move-Item -LiteralPath $_.FullName -Destination $target -Force
-            }
-          }
+          .\.github\scripts\Invoke-Package.ps1 `
+            -InputDir dist `
+            -OutputDir pkg `
+            -Version "${{ steps.ver.outputs.version }}"
           Get-ChildItem pkg
 
-      - name: Commit version bump and tag
+      - name: Commit version bump, tag, and push
         shell: pwsh
         run: |
           $v = "${{ steps.ver.outputs.version }}"
@@ -259,18 +177,26 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add version
           git commit -m "Bump version to $v [skip ci]"
-          git tag $v
-          git push origin HEAD:main --follow-tags
+          git tag -a $v -m "Release $v"
+          git push origin HEAD:main
+          git push origin "refs/tags/$v"
 
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ steps.ver.outputs.version }}
-          name: MigrationMerlin ${{ steps.ver.outputs.version }}
-          body: |
-            Rolling release built from commit ${{ github.sha }}.
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $v = "${{ steps.ver.outputs.version }}"
+          $zip = (Get-ChildItem pkg\*.zip | Select-Object -First 1).FullName
+          if (-not $zip) { throw "No zip found in pkg/" }
 
-            Source: https://github.com/${{ github.repository }}/commit/${{ github.sha }}
-          files: pkg/*.zip
-          prerelease: false
-          fail_on_unmatched_files: true
+          $notesPath = Join-Path $env:RUNNER_TEMP "release-notes.md"
+          @(
+            "Rolling release built from commit ${{ github.sha }}."
+            ""
+            "Source: https://github.com/${{ github.repository }}/commit/${{ github.sha }}"
+          ) | Set-Content -Path $notesPath -Encoding utf8
+
+          gh release create $v $zip `
+            --title "MigrationMerlin $v" `
+            --notes-file $notesPath
