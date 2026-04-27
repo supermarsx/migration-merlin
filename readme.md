@@ -4,7 +4,10 @@
 
 USMT-based Windows user-profile migration toolkit with TUI, batch wrappers, and a robust test suite.
 
-![CI](https://github.com/supermarsx/migration-merlin/actions/workflows/ci.yml/badge.svg)
+[![CI](https://img.shields.io/github/actions/workflow/status/supermarsx/migration-merlin/ci.yml?branch=main&label=CI&style=flat-square)](https://github.com/supermarsx/migration-merlin/actions/workflows/ci.yml)
+[![Version](https://img.shields.io/badge/version-26.5-blue?style=flat-square)](version)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](license.md)
+![Built with PowerShell](https://img.shields.io/badge/built%20with-PowerShell-5391FE?style=flat-square&logo=powershell&logoColor=white)
 
 Rolling release · [latest release](https://github.com/supermarsx/migration-merlin/releases/latest)
 
