@@ -175,7 +175,7 @@ jobs:
 
       - name: Apply frozen version
         shell: pwsh
-        run: Set-Content -Path version -Value "${{ needs.build.outputs.version }}" -NoNewline
+        run: .\.github\scripts\Get-NextVersion.ps1 -Write -Version "${{ needs.build.outputs.version }}"
 
       - name: Build (re-run to produce dist/)
         shell: pwsh
@@ -204,7 +204,7 @@ jobs:
 
       - name: Apply frozen version
         shell: pwsh
-        run: Set-Content -Path version -Value "${{ needs.build.outputs.version }}" -NoNewline
+        run: .\.github\scripts\Get-NextVersion.ps1 -Write -Version "${{ needs.build.outputs.version }}"
 
       - name: Build (re-run to produce dist/)
         shell: pwsh
@@ -224,7 +224,7 @@ jobs:
           $v = "${{ needs.build.outputs.version }}"
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add version
+          git add version readme.md
           git commit -m "Bump version to $v [skip ci]"
           git tag -a $v -m "Release $v"
           git push origin HEAD:main
